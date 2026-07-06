@@ -1,0 +1,11 @@
+{
+  "colors": {
+    "primary": "#e4032e",
+    "secondary": "#1b2a7b"
+  },
+  "scene": "congres",
+  "halls": {
+    "eventhall": true,
+    "grandhall": true
+  }
+}
