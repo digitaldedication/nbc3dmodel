@@ -1,0 +1,4 @@
+node_modules/
+scene-inspection/
+configs/*.json
+!configs/demo.json

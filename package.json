@@ -1,0 +1,31 @@
+{
+  "name": "nbc-3d-salestool",
+  "version": "1.0.0",
+  "description": "NBC Events 3D plattegrond als salestool: gebrande modellen per event met unieke deel-URL",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "serve": "node scripts/serve.mjs",
+    "test:branding": "node scripts/test-branding.mjs",
+    "test:viewer": "node scripts/test-viewer.mjs",
+    "inspect": "node scripts/inspect-scene.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "http://local_proxy@127.0.0.1:41729/git/digitaldedication/nbc3dmodel"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@splinetool/boolean-wasm": "^1.12.98",
+    "@splinetool/modelling-wasm": "^1.12.98",
+    "@splinetool/navmesh-wasm": "^1.12.98",
+    "@splinetool/runtime": "^1.12.98",
+    "playwright": "^1.61.1",
+    "three": "^0.185.1"
+  },
+  "private": true,
+  "type": "module"
+}

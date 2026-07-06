@@ -1,0 +1,51 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><style>html,body{margin:0;height:100%}canvas{width:100%;height:100%;display:block}</style></head>
+<body>
+<canvas id="c"></canvas>
+<script type="module">
+import { Application } from '/node_modules/@splinetool/runtime/build/runtime.js';
+import { applyBranding, listImageAssets } from '/src/branding.js';
+
+const params = new URLSearchParams(location.search);
+const sceneUrl = params.get('scene');
+window.__ready = false;
+window.__branded = false;
+
+// Test-logo: wit woordmerk op transparante achtergrond
+function makeTestLogo() {
+  const c = document.createElement('canvas');
+  c.width = 800; c.height = 360;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath(); ctx.arc(120, 180, 90, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0)';
+  ctx.font = '900 130px sans-serif';
+  ctx.fillStyle = '#ffffff';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('ACME', 250, 190);
+  return c.toDataURL('image/png');
+}
+
+async function run() {
+  const app = new Application(document.getElementById('c'));
+  await app.load(sceneUrl);
+  window.__app = app;
+  window.__assets = listImageAssets(app).map(a => ({ name: a.name, w: a.width, h: a.height }));
+  window.__ready = true;
+}
+
+window.__applyBranding = async () => {
+  const report = await applyBranding(window.__app, {
+    colors: { primary: '#E4032E', secondary: '#1B2A7B' },
+    logo: makeTestLogo(),
+    lights: false,
+  });
+  window.__brandReport = { swapped: report.swapped, lights: report.lights, skipped: report.skipped };
+  window.__branded = true;
+};
+
+run().catch((e) => { window.__error = String(e && e.stack || e); window.__ready = true; });
+</script>
+</body>
+</html>

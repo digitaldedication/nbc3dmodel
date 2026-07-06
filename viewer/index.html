@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>3D plattegrond</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #eceff0; font-family: system-ui, sans-serif; }
+  #c { width: 100%; height: 100%; display: block; }
+  #badge {
+    position: fixed; top: 16px; left: 16px; z-index: 10;
+    display: flex; align-items: center; gap: 10px;
+    background: rgba(20,20,20,.85); color: #fff; border-radius: 999px;
+    padding: 8px 18px 8px 10px; font-weight: 800; font-size: 14px;
+    box-shadow: 0 4px 18px rgba(0,0,0,.25);
+  }
+  #badge img { height: 26px; max-width: 90px; object-fit: contain; }
+  #status {
+    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: #eceff0; color: #333; font-size: 15px; z-index: 20; transition: opacity .4s;
+  }
+  #status.hidden { opacity: 0; pointer-events: none; }
+  #scenes {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 10;
+    display: flex; gap: 4px; background: rgba(20,20,20,.85); border-radius: 999px; padding: 4px;
+  }
+  #scenes button {
+    border: 0; background: transparent; color: #fff; font-weight: 800; font-size: 13px;
+    padding: 8px 18px; border-radius: 999px; cursor: pointer;
+  }
+  #scenes button.active { background: #fff; color: #111; }
+</style>
+</head>
+<body>
+<div id="status">3D plattegrond laden…</div>
+<div id="badge" style="display:none"></div>
+<div id="scenes" style="display:none"></div>
+<canvas id="c"></canvas>
+<script type="module">
+import { Application } from '/node_modules/@splinetool/runtime/build/runtime.js';
+import { applyBranding } from '/src/branding.js';
+
+const SCENES = {
+  congres: { url: '/assets/spline/congres/scene.splinecode', label: 'Congress' },
+  feest:   { url: '/assets/spline/feest/scene.splinecode',   label: 'Party' },
+  sitdown: { url: '/assets/spline/sitdown/scene.splinecode', label: 'Sit down dinner' },
+  lounge:  { url: '/assets/spline/lounge/scene.splinecode',  label: 'Verdieping 2' },
+};
+
+const statusEl = document.getElementById('status');
+const badgeEl = document.getElementById('badge');
+const scenesEl = document.getElementById('scenes');
+
+function fail(msg) { statusEl.textContent = msg; statusEl.classList.remove('hidden'); }
+
+/** Config laden: ?e=TOKEN → configs/TOKEN.json, of #c=<base64url json> (serverloos delen). */
+async function loadConfig() {
+  const params = new URLSearchParams(location.search);
+  const token = params.get('e');
+  if (token) {
+    if (!/^[A-Za-z0-9_-]{8,64}$/.test(token)) throw new Error('Ongeldige link.');
+    const res = await fetch(`/configs/${token}.json`, { cache: 'no-store' });
+    if (!res.ok) throw new Error('Deze 3D plattegrond bestaat niet (meer).');
+    return res.json();
+  }
+  const hash = new URLSearchParams(location.hash.slice(1));
+  const packed = hash.get('c');
+  if (packed) {
+    const b64 = packed.replace(/-/g, '+').replace(/_/g, '/');
+    const json = new TextDecoder().decode(Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0)));
+    return JSON.parse(json);
+  }
+  return {}; // ongebrand model
+}
+
+let app = null;
+let config = {};
+let currentScene = null;
+
+async function showScene(key) {
+  currentScene = key;
+  [...scenesEl.children].forEach((b) => b.classList.toggle('active', b.dataset.key === key));
+  statusEl.textContent = '3D plattegrond laden…';
+  statusEl.classList.remove('hidden');
+  if (app) { app.dispose(); app = null; }
+  app = new Application(document.getElementById('c'));
+  await app.load(SCENES[key].url);
+  if (config.colors || config.logo || config.screens) {
+    try { await applyBranding(app, config); }
+    catch (e) { console.warn('Branding kon niet volledig worden toegepast:', e); }
+  }
+  statusEl.classList.add('hidden');
+}
+
+function initUI() {
+  if (config.eventName || config.logo) {
+    badgeEl.style.display = 'flex';
+    badgeEl.innerHTML = '';
+    if (config.logo) { const img = new Image(); img.src = config.logo; badgeEl.appendChild(img); }
+    const span = document.createElement('span');
+    span.textContent = 'NBC' + (config.eventName ? ' × ' + config.eventName : '');
+    badgeEl.appendChild(span);
+  }
+  const keys = (config.scenes && config.scenes.length ? config.scenes : Object.keys(SCENES))
+    .filter((k) => SCENES[k]);
+  if (keys.length > 1) {
+    scenesEl.style.display = 'flex';
+    for (const k of keys) {
+      const b = document.createElement('button');
+      b.textContent = SCENES[k].label; b.dataset.key = k;
+      b.addEventListener('click', () => showScene(k));
+      scenesEl.appendChild(b);
+    }
+  }
+  return keys[0] || 'congres';
+}
+
+try {
+  config = await loadConfig();
+  const first = initUI();
+  await showScene(config.scene && SCENES[config.scene] ? config.scene : first);
+} catch (e) {
+  console.error(e);
+  fail(e.message || 'Er ging iets mis bij het laden.');
+}
+</script>
+</body>
+</html>

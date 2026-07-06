@@ -1,0 +1,106 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><style>html,body{margin:0;height:100%}canvas{width:100%;height:100%;display:block}</style></head>
+<body>
+<canvas id="c"></canvas>
+<script type="module">
+import { Application } from '/node_modules/@splinetool/runtime/build/runtime.js';
+
+const params = new URLSearchParams(location.search);
+const sceneUrl = params.get('scene');
+
+window.__ready = false;
+window.__report = null;
+
+function describeTextures(material, maxDepth = 4) {
+  const found = [];
+  const seen = new Set();
+  const walk = (obj, path, depth) => {
+    if (!obj || typeof obj !== 'object' || depth > maxDepth || seen.has(obj)) return;
+    seen.add(obj);
+    if (obj.isTexture) {
+      const img = obj.image || (obj.source && obj.source.data);
+      found.push({
+        path,
+        name: obj.name || null,
+        uuid: obj.uuid,
+        w: img && (img.width || img.videoWidth) || null,
+        h: img && (img.height || img.videoHeight) || null,
+        kind: img ? (img.tagName || img.constructor.name) : null,
+      });
+      return;
+    }
+    for (const k of Object.keys(obj)) {
+      if (k.startsWith('__')) continue;
+      const v = obj[k];
+      if (v && typeof v === 'object') walk(v, path + '.' + k, depth + 1);
+    }
+  };
+  walk(material, 'mat', 0);
+  return found;
+}
+
+async function run() {
+  const canvas = document.getElementById('c');
+  const app = new Application(canvas);
+  await app.load(sceneUrl);
+  window.__app = app;
+
+  const scene = app._scene;
+  const nodes = [];
+  const materials = new Map();
+  scene.traverse((o) => {
+    const entry = {
+      name: o.name || '',
+      type: o.type,
+      visible: o.visible,
+      isMesh: !!o.isMesh,
+      isLight: !!o.isLight,
+      children: o.children.length,
+    };
+    if (o.isLight) {
+      entry.lightColor = o.color ? '#' + o.color.getHexString() : null;
+      entry.intensity = o.intensity;
+    }
+    if (o.isMesh && o.material) {
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      entry.materials = mats.map((m) => {
+        if (!materials.has(m.uuid)) {
+          materials.set(m.uuid, {
+            uuid: m.uuid,
+            name: m.name || '',
+            type: m.type,
+            color: m.color ? '#' + m.color.getHexString() : null,
+            textures: describeTextures(m),
+            usedBy: [],
+          });
+        }
+        materials.get(m.uuid).usedBy.push(o.name || o.uuid);
+        return m.uuid;
+      });
+    }
+    nodes.push(entry);
+  });
+
+  // Spline-level objects (public API)
+  let splineObjects = [];
+  try { splineObjects = app.getAllObjects().map((o) => ({ name: o.name, visible: o.visible })); } catch (e) {}
+
+  // Spline variables, if any
+  let variables = null;
+  try { variables = app.getVariables ? app.getVariables() : null; } catch (e) {}
+
+  window.__report = {
+    sceneUrl,
+    nodeCount: nodes.length,
+    nodes,
+    materials: [...materials.values()],
+    splineObjects,
+    variables,
+  };
+  window.__ready = true;
+}
+run().catch((e) => { window.__error = String(e && e.stack || e); window.__ready = true; });
+</script>
+</body>
+</html>
