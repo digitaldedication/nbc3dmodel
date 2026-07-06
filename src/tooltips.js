@@ -10,8 +10,11 @@
  * daarnaast het object "Wegneembare wand" zichtbaar/onzichtbaar.
  */
 
-/** Ruimte-tooltips: altijd zichtbaar label + kaart met capaciteitsvarianten. */
-export const SPACE_TOOLTIPS = [
+import { SPACE_TOOLTIPS as LIVE_SPACE, INFO_TOOLTIPS as LIVE_INFO } from './tooltip-content.js';
+
+/* Oude placeholder-data hieronder blijft als fallback-documentatie, maar de
+   daadwerkelijke content komt 1-op-1 uit tooltip-content.js (live CMS). */
+const PLACEHOLDER_SPACE_TOOLTIPS = [
   {
     splineName: 'tooltip-event-hall', label: 'Event hall', tooltipType: 'space',
     cardTitle: 'Event hall',
@@ -58,8 +61,7 @@ export const SPACE_TOOLTIPS = [
   },
 ];
 
-/** Info-tooltips: klein plusje, klik = kaart. Zelfde volgorde als de live site. */
-export const INFO_TOOLTIPS = [
+const PLACEHOLDER_INFO_TOOLTIPS = [
   { splineName: 'tooltip-grand-hall-balkon', label: 'Balkon' },
   { splineName: 'tooltip-grand-hall-stoelen-in-de-zaal', label: 'Stoelen in de zaal' },
   { splineName: 'tooltip-grand-hall-podium', label: 'Podium' },
@@ -78,6 +80,11 @@ export const INFO_TOOLTIPS = [
   { splineName: 'tooltip-eventhall-stoelen-in-de-zaal', label: 'Stoelen in de zaal' },
   { splineName: 'tooltip-eventhall-scheidingswand', label: 'Scheidingswand' },
 ].map((t) => ({ tooltipType: 'info', cardTitle: t.label, cardDescription: '', cardLink: '', cardLinkText: 'Meer informatie', ...t }));
+
+export const SPACE_TOOLTIPS = LIVE_SPACE && LIVE_SPACE.length ? LIVE_SPACE : PLACEHOLDER_SPACE_TOOLTIPS;
+export const INFO_TOOLTIPS = LIVE_INFO && LIVE_INFO.length ? LIVE_INFO : PLACEHOLDER_INFO_TOOLTIPS;
+
+const FONT = "'Area Normal', system-ui, sans-serif";
 
 const WAND_TOOLTIP = 'tooltip-eventhall-scheidingswand';
 const WAND_OBJECT = 'Wegneembare wand';
@@ -145,7 +152,7 @@ export function initTooltips(app, container, options = {}) {
     btn.type = 'button';
     btn.style.cssText = `position:absolute;left:0;top:0;display:none;transform:translate(-50%,-50%);pointer-events:auto;border:0;cursor:pointer;
       display:none;align-items:center;gap:8px;height:40px;border-radius:999px;padding:0 8px;
-      background:${isSpace ? 'rgba(20,20,20,.92)' : 'transparent'};color:#fff;font:800 12px/1 system-ui,sans-serif;white-space:nowrap;
+      background:${isSpace ? 'rgba(20,20,20,.92)' : 'transparent'};color:#fff;font:800 12px/1 ${FONT};white-space:nowrap;
       transition:background .2s;`;
     const dot = document.createElement('span');
     dot.style.cssText = `display:flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:999px;flex:0 0 auto;
@@ -166,7 +173,7 @@ export function initTooltips(app, container, options = {}) {
     const hasImg = def.defaultImage || variants.length;
     cardHost.innerHTML = '';
     const card = document.createElement('div');
-    card.style.cssText = 'position:relative;display:flex;flex-direction:column;gap:14px;padding:22px;border-radius:24px;background:#262626;color:#fff;box-shadow:0 12px 40px rgba(0,0,0,.35);font-family:system-ui,sans-serif;';
+    card.style.cssText = `position:relative;display:flex;flex-direction:column;gap:14px;padding:22px;border-radius:24px;background:#262626;color:#fff;box-shadow:0 12px 40px rgba(0,0,0,.35);font-family:${FONT};`;
     const close = document.createElement('button');
     close.type = 'button';
     close.setAttribute('aria-label', 'Kaart sluiten');
@@ -193,13 +200,25 @@ export function initTooltips(app, container, options = {}) {
       variants.forEach((v, vi) => {
         const chip = document.createElement('button');
         chip.type = 'button';
-        chip.textContent = `\u{1F464} ${v.capacityLabel || ''}`;
-        chip.style.cssText = 'border:0;border-radius:6px;padding:5px 10px;font:800 12px system-ui;background:#3a3a3a;color:#fff;cursor:pointer;';
-        const show = () => { if (imgEl) imgEl.src = v.imageUrl; row.querySelectorAll('button').forEach((b) => (b.style.background = '#3a3a3a')); chip.style.background = '#5a5a5a'; };
+        chip.style.cssText = `display:flex;align-items:center;gap:5px;border:0;border-radius:6px;padding:5px 10px;font:800 12px ${FONT};background:#f2f3f3;color:#16181a;cursor:pointer;`;
+        const addIcon = (iconUrl) => {
+          if (!iconUrl) return;
+          const ic = document.createElement('span');
+          ic.style.cssText = `width:14px;height:14px;background:#16181a;-webkit-mask:url("${iconUrl}") center/contain no-repeat;mask:url("${iconUrl}") center/contain no-repeat;`;
+          chip.appendChild(ic);
+        };
+        addIcon(v.iconLeftUrl);
+        if (v.capacityLabel) {
+          const sp = document.createElement('span');
+          sp.textContent = v.capacityLabel;
+          chip.appendChild(sp);
+        }
+        addIcon(v.iconRightUrl);
+        const show = () => { if (imgEl) imgEl.src = v.imageUrl; row.querySelectorAll('button').forEach((b) => (b.style.background = '#d8dbdc')); chip.style.background = '#fff'; };
         chip.addEventListener('mouseenter', show);
         chip.addEventListener('focus', show);
         chip.addEventListener('click', show);
-        if (vi === 0) chip.style.background = '#5a5a5a';
+        if (vi === 0) chip.style.background = '#fff';
         row.appendChild(chip);
       });
       card.appendChild(row);

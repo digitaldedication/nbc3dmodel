@@ -11,6 +11,8 @@ const config = {
   eventName: 'ACME Kickoff 2026',
   colors: { primary: '#E4032E', secondary: '#1B2A7B' },
   scene: 'congres',
+  eventhall: { type: 'preset:blauw', logoSpots: 2 },
+  grandhall: { mode: 'zwart' },
   halls: { eventhall: true, grandhall: false },
 };
 const b64 = Buffer.from(JSON.stringify(config)).toString('base64url');
@@ -44,7 +46,7 @@ try {
   // simuleer GitHub Pages-subpad
   await page.goto(`http://127.0.0.1:8787/nbc3dmodel/viewer/#c=${b64}`);
   await page.waitForSelector('#status.hidden', { timeout: 240000 });
-  await new Promise((r) => setTimeout(r, 3500));
+  await new Promise((r) => setTimeout(r, 14000));
   await page.screenshot({ path: 'scene-inspection/viewer-branded.png' });
   console.log('OK: scene-inspection/viewer-branded.png');
 

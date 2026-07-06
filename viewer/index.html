@@ -6,7 +6,11 @@
 <meta name="robots" content="noindex, nofollow">
 <title>3D plattegrond</title>
 <style>
-  html, body { margin: 0; height: 100%; background: #eceff0; font-family: system-ui, sans-serif; }
+  @font-face { font-family: 'Area Normal'; src: url('../assets/fonts/AreaNormal-Regular.otf') format('opentype'); font-weight: 400; font-display: swap; }
+  @font-face { font-family: 'Area Normal'; src: url('../assets/fonts/AreaNormal-Semibold.otf') format('opentype'); font-weight: 600; font-display: swap; }
+  @font-face { font-family: 'Area Normal'; src: url('../assets/fonts/AreaNormal-Extrabold.otf') format('opentype'); font-weight: 800; font-display: swap; }
+  @font-face { font-family: 'Area Normal'; src: url('../assets/fonts/AreaNormal-Extrablack.otf') format('opentype'); font-weight: 900; font-display: swap; }
+  html, body { margin: 0; height: 100%; background: #eceff0; font-family: 'Area Normal', system-ui, sans-serif; }
   #stage { position: fixed; inset: 0; }
   #c { width: 100%; height: 100%; display: block; }
   #badge {
@@ -71,10 +75,10 @@ try {
 }
 
 const SCENES = {
-  congres: { url: url('assets/spline/congres/scene.splinecode'), label: 'Congress' },
-  feest:   { url: url('assets/spline/feest/scene.splinecode'),   label: 'Party' },
-  sitdown: { url: url('assets/spline/sitdown/scene.splinecode'), label: 'Sit down dinner' },
-  lounge:  { url: url('assets/spline/lounge/scene.splinecode'),  label: 'Verdieping 2' },
+  congres: { url: url('assets/spline/congres/scene.splinecode'), label: 'Congres' },
+  feest:   { url: url('assets/spline/feest/scene.splinecode'),   label: 'Bedrijfsfeest' },
+  sitdown: { url: url('assets/spline/sitdown/scene.splinecode'), label: 'Sit-down dinner' },
+  lounge:  { url: url('assets/spline/lounge/scene.splinecode'),  label: '1: Lounge Area' },
 };
 // lounge alleen tonen als de config er expliciet om vraagt
 const DEFAULT_SCENE_KEYS = ['congres', 'feest', 'sitdown'];
@@ -124,7 +128,18 @@ async function showScene(key) {
   await app.load(SCENES[key].url);
   if (id !== loadId) return; // inmiddels een andere scène gekozen
   try {
-    await applyBranding(app, config);
+    // decor-presets (meegeleverde wandbeelden) omzetten naar een afbeelding
+    const cfg = JSON.parse(JSON.stringify(config));
+    const preset = cfg.eventhall && typeof cfg.eventhall.type === 'string' && cfg.eventhall.type.startsWith('preset:')
+      ? cfg.eventhall.type.slice(7) : null;
+    if (preset) {
+      const files = { blauw: 'blauw.jpg', wit: 'wit.jpg', geel: 'geel.png', 'blauw-glas': 'blauw-glas.jpg' };
+      if (files[preset]) {
+        cfg.eventhall.type = 'custom';
+        cfg.eventhall.image = url('assets/decors/' + files[preset]);
+      }
+    }
+    await applyBranding(app, cfg);
   } catch (e) {
     console.warn('Branding kon niet volledig worden toegepast:', e);
   }

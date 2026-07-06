@@ -7,8 +7,11 @@
 <title>NBC 3D — beheeromgeving</title>
 <style>
   :root { --ink: #16181a; --bg: #f4f6f7; --card: #fff; --accent: #16181a; }
+  @font-face { font-family: 'Area Normal'; src: url('../assets/fonts/AreaNormal-Regular.otf') format('opentype'); font-weight: 400; font-display: swap; }
+  @font-face { font-family: 'Area Normal'; src: url('../assets/fonts/AreaNormal-Semibold.otf') format('opentype'); font-weight: 600; font-display: swap; }
+  @font-face { font-family: 'Area Normal'; src: url('../assets/fonts/AreaNormal-Extrabold.otf') format('opentype'); font-weight: 800; font-display: swap; }
   * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; background: var(--bg); color: var(--ink); }
+  html, body { margin: 0; height: 100%; font-family: 'Area Normal', system-ui, sans-serif; background: var(--bg); color: var(--ink); }
   main { display: grid; grid-template-columns: 400px 1fr; height: 100vh; }
   aside { padding: 22px; overflow-y: auto; background: var(--card); border-right: 1px solid #e3e7e9; }
   h1 { font-size: 19px; margin: 0 0 4px; }
@@ -91,16 +94,50 @@
     </fieldset>
 
     <fieldset>
-      <legend>Eigen beeld per schermgroep (optioneel)</legend>
-      <label for="img-eventhall" style="margin-top:0">Groot scherm Event Hall</label>
+      <legend>Event Hall — decorwand</legend>
+      <label for="eh-decor" style="margin-top:0">Decor</label>
+      <select id="eh-decor" style="width:100%;padding:8px 10px;border:1px solid #cfd6d9;border-radius:8px;font-size:14px;">
+        <option value="verloop">Kleurverloop (kleur 1 → kleur 2)</option>
+        <option value="effen1">Effen — kleur 1</option>
+        <option value="effen2">Effen — kleur 2</option>
+        <option value="zwart">Zwart</option>
+        <option value="preset:blauw">Decor — blauw</option>
+        <option value="preset:blauw-glas">Decor — glas met blauwe randen</option>
+        <option value="preset:wit">Decor — wit</option>
+        <option value="preset:geel">Decor — geel</option>
+        <option value="custom">Eigen decor (upload hieronder)</option>
+      </select>
+      <label for="img-eventhall">Eigen decor / beeld (breed, loopt door over de hele wand)</label>
       <input type="file" id="img-eventhall" accept="image/*">
-      <label for="img-ledwall">LED-wall entree</label>
-      <input type="file" id="img-ledwall" accept="image/*">
-      <label for="img-narrowcasting">Registratie-/narrowcastingschermen</label>
-      <input type="file" id="img-narrowcasting" accept="image/*">
-      <label for="img-pilaren">LED-pilaren</label>
+      <label for="eh-logospots">Logo op de wand</label>
+      <select id="eh-logospots" style="width:100%;padding:8px 10px;border:1px solid #cfd6d9;border-radius:8px;font-size:14px;">
+        <option value="2">2 plekken (kwart + driekwart)</option>
+        <option value="1">1 plek (midden)</option>
+        <option value="0">Geen logo op de wand</option>
+      </select>
+      <p class="hint">Het beeld wordt als één geheel over de 4 schermdelen verdeeld, zodat het netjes doorloopt.</p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Grand Hall — middenscherm (16:9)</legend>
+      <div class="radios">
+        <label class="inline"><input type="radio" name="ghmode" value="kleur" checked> Kleur (huisstijlverloop)</label>
+        <label class="inline"><input type="radio" name="ghmode" value="zwart"> Zwart scherm</label>
+      </div>
+      <label for="img-grandhall">Eigen beeld middenscherm (16:9, optioneel)</label>
+      <input type="file" id="img-grandhall" accept="image/*">
+      <p class="hint">Het logo komt gecentreerd op het middenscherm; de zijschermen volgen de huisstijlkleuren.</p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Eigen beeld per schermgroep (optioneel)</legend>
+      <label for="img-pilaren" style="margin-top:0">LED-pilaren (staand beeld — vult alle 4 zijden volledig)</label>
       <input type="file" id="img-pilaren" accept="image/*">
-      <p class="hint">Zonder eigen beeld krijgt de groep automatisch het kleurverloop + logo.</p>
+      <label for="img-ledwall">LED-wall entree (16:9)</label>
+      <input type="file" id="img-ledwall" accept="image/*">
+      <label for="img-narrowcasting">Registratie-/narrowcastingschermen (16:9)</label>
+      <input type="file" id="img-narrowcasting" accept="image/*">
+      <p class="hint">Uploads vullen het volledige element (cover). Zonder eigen beeld: kleurverloop + logo.</p>
     </fieldset>
 
     <button class="primary" id="save">Event opslaan + link maken</button>
@@ -154,23 +191,30 @@ function fileToDataUri(file, maxW = 1600) {
 }
 
 // geüploade bestanden onthouden (ook na bewerken van een opgeslagen event)
-const uploads = { logo: null, eventhall: null, ledwall: null, narrowcasting: null, pilaren: null };
+const uploads = { logo: null, eventhall: null, grandhall: null, ledwall: null, narrowcasting: null, pilaren: null };
 
 async function buildConfig() {
   const screens = {};
-  for (const role of ['eventhall', 'ledwall', 'narrowcasting', 'pilaren']) {
+  for (const role of ['eventhall', 'grandhall', 'ledwall', 'narrowcasting', 'pilaren']) {
     const f = $('img-' + role).files[0];
-    if (f) uploads[role] = await fileToDataUri(f);
+    if (f) uploads[role] = await fileToDataUri(f, role === 'eventhall' ? 2400 : 1600);
     if (uploads[role]) screens[role] = uploads[role];
   }
   const logoFile = $('logo').files[0];
   if (logoFile) uploads.logo = await fileToDataUri(logoFile, 800);
   const scene = document.querySelector('input[name=scene]:checked').value;
+  const logoSpots = Number($('eh-logospots').value);
   return {
     eventName: $('eventName').value.trim() || undefined,
     colors: { primary: $('c1').value, secondary: $('c2').value },
     logo: uploads.logo || undefined,
     screens: Object.keys(screens).length ? screens : undefined,
+    eventhall: {
+      type: uploads.eventhall ? 'custom' : $('eh-decor').value,
+      logoSpots: logoSpots || 1,
+      logo: logoSpots > 0,
+    },
+    grandhall: { mode: document.querySelector('input[name=ghmode]:checked').value },
     scene,
     scenes: $('allowSwitch').checked ? undefined : [scene],
     halls: { eventhall: $('hall-eventhall').checked, grandhall: $('hall-grandhall').checked },
@@ -254,8 +298,13 @@ function loadIntoForm(ev) {
   $('hall-eventhall').checked = !c.halls || c.halls.eventhall !== false;
   $('hall-grandhall').checked = !c.halls || c.halls.grandhall !== false;
   $('allowSwitch').checked = !(c.scenes && c.scenes.length === 1);
+  const eh = c.eventhall || {};
+  $('eh-decor').value = eh.type && eh.type !== 'custom' ? eh.type : 'verloop';
+  $('eh-logospots').value = eh.logo === false ? '0' : String(eh.logoSpots || 2);
+  const ghm = (c.grandhall && c.grandhall.mode) || 'kleur';
+  document.querySelector(`input[name=ghmode][value=${ghm}]`).checked = true;
   uploads.logo = c.logo || null;
-  for (const role of ['eventhall', 'ledwall', 'narrowcasting', 'pilaren']) {
+  for (const role of ['eventhall', 'grandhall', 'ledwall', 'narrowcasting', 'pilaren']) {
     uploads[role] = (c.screens && c.screens[role]) || null;
     $('img-' + role).value = '';
   }

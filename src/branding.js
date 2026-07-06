@@ -326,83 +326,21 @@ function shallowCloneMesh(src) {
   return c;
 }
 
-export function overlayLogoOnGrandHall(app, { width = 90, dx = 0, dy = 22, dz = -4, rotZ = 90, rotY = 180, hideWelkom = true, debugCenter = false } = {}) {
-  const scene = app._scene;
-  const candidates = [];
-  let welkom = null;
-  scene.traverse((o) => {
-    if (!welkom && o.isMesh && (o.name || '').trim() === 'Welkom') welkom = o;
-    if (o.isMesh && /^Rectangle/.test(o.name || '') &&
-        o.parent && /NBC logo's pilaar/i.test(o.parent.name || '')) candidates.push(o);
-  });
-  if (!candidates.length || !welkom) return false;
+/* ------------------------------------------------------------------ *
+ *  Canvas-helpers                                                     *
+ * ------------------------------------------------------------------ */
 
-  // Nieuwe meshes toevoegen rendert Spline niet (gecachte renderlijst), dus
-  // we verplaatsen een BESTAAND logovlak: van de achterste pilaar het vlak
-  // dat het dichtst bij de achterwand zit (praktisch onzichtbaar).
-  welkom.updateWorldMatrix(true, false);
-  // de "Welkom"-tekst verdwijnt; het logo komt in het midden van het scherm
-  if (hideWelkom) {
-    const parent = welkom.parent && /welkom/i.test(welkom.parent.name || '') ? welkom.parent : welkom;
-    parent.visible = false;
-  }
-  let logoMesh = null, bestZ = -Infinity;
-  for (const c of candidates) {
-    c.updateWorldMatrix(true, false);
-    const z = c.matrixWorld.elements[14];
-    if (z > bestZ) { bestZ = z; logoMesh = c; }
-  }
-
-  // natuurlijke wereldbreedte van het logovlak bepalen
-  if (!logoMesh.geometry.boundingBox) logoMesh.geometry.computeBoundingBox();
-  const bb = logoMesh.geometry.boundingBox;
-  const le = logoMesh.matrixWorld.elements;
-  const logoSx = Math.hypot(le[0], le[1], le[2]) || 1;
-  const nativeW = Math.max((bb.max.x - bb.min.x) * logoSx, 1e-6);
-  const targetScale = (width / nativeW) * logoSx;
-
-  const mat = Array.isArray(logoMesh.material) ? logoMesh.material[0] : logoMesh.material;
-  if (mat) { mat.side = 2; mat.needsUpdate = true; }
-
-  // gewenste wereldmatrix: oriëntatie van de Welkom-tekst (staat al op het
-  // scherm), uniforme schaal, positie = Welkom + wereld-offset
-  const desired = welkom.matrixWorld.clone();
-  const e = desired.elements;
-  for (let col = 0; col < 3; col++) {
-    const i = col * 4;
-    const len = Math.hypot(e[i], e[i + 1], e[i + 2]) || 1;
-    e[i] = (e[i] / len) * targetScale;
-    e[i + 1] = (e[i + 1] / len) * targetScale;
-    e[i + 2] = (e[i + 2] / len) * targetScale;
-  }
-  if (debugCenter) { e[12] = 400; e[13] = 60; e[14] = 500; }
-  else { e[12] += dx; e[13] += dy; e[14] += dz; }
-  if (rotZ) desired.multiply(desired.clone().makeRotationZ((rotZ * Math.PI) / 180));
-  if (rotY) desired.multiply(desired.clone().makeRotationY((rotY * Math.PI) / 180));
-
-  // lokale matrix t.o.v. de bestaande parent: local = parentWorld⁻¹ × desired
-  logoMesh.parent.updateWorldMatrix(true, false);
-  const local = logoMesh.parent.matrixWorld.clone().invert().multiply(desired);
-  local.decompose(logoMesh.position, logoMesh.quaternion, logoMesh.scale);
-  logoMesh.updateMatrix();
-  logoMesh.updateWorldMatrix(true, false);
-  logoMesh.name = 'brand-logo-grandhall';
-  if (app.requestRender) app.requestRender();
-  return true;
+/** Afbeelding cover-fit in een canvas van w×h (vult het hele vlak). */
+export function coverCanvas(img, w, h) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const ctx = c.getContext('2d');
+  const s = Math.max(w / img.width, h / img.height);
+  const dw = img.width * s, dh = img.height * s;
+  ctx.drawImage(img, (w - dw) / 2, (h - dh) / 2, dw, dh);
+  return c;
 }
 
-/**
- * Pas branding toe op een geladen Spline Application.
- *
- * @param {Application} app
- * @param {object} config
- *   colors:   { primary: '#rrggbb', secondary: '#rrggbb' }
- *   logo:     URL of data-URI van het logo (png met transparantie)
- *   screens:  { [rol]: URL/data-URI } — eigen afbeelding per schermgroep
- *   allScreens: URL/data-URI — één afbeelding voor álle schermen (optioneel)
- *   lights:   false om lichten ongemoeid te laten (standaard: omkleuren)
- * @returns overzicht van wat er is aangepast
- */
 /** Logo op transparante achtergrond, in de beeldverhouding van het origineel. */
 export function makeLogoCanvas(logoImg, width = 852, height = 382) {
   const c = document.createElement('canvas');
@@ -415,8 +353,424 @@ export function makeLogoCanvas(logoImg, width = 852, height = 382) {
   return c;
 }
 
+/* ------------------------------------------------------------------ *
+ *  Event Hall: decor over de volledige schermwand (4 delen)           *
+ * ------------------------------------------------------------------ */
+
+/**
+ * Bouw één doorlopend decorbeeld voor de hele Event Hall-schermwand en
+ * verdeel het over de 4 "Deel"-textures, zodat het beeld en de logo's
+ * netjes doorlopen over de wand (in plaats van 4 losse herhalingen).
+ *
+ * decor: { type: 'verloop' | 'effen1' | 'effen2' | 'zwart' | 'custom',
+ *          image?: geladen afbeelding (bij 'custom'),
+ *          logoSpots?: aantal logo-plekken (1 of 2, standaard 2) }
+ */
+export function applyEventhallDecor(app, { decor = {}, colors = {}, logoImg = null }) {
+  const parts = listImageAssets(app)
+    .filter((a) => /event\s*hall\s*scherm/i.test(a.name))
+    .map((a) => {
+      const m = a.name.match(/deel\s*(\d)/i);
+      return { ...a, index: m ? Number(m[1]) : 99 };
+    })
+    .sort((a, b) => a.index - b.index);
+  if (!parts.length) return 0;
+
+  const height = Math.max(...parts.map((p) => p.height || 850));
+  const widths = parts.map((p) => Math.round((p.width || 1280) * (height / (p.height || 850))));
+  const total = widths.reduce((a, b) => a + b, 0);
+
+  // 1. achtergrond over de hele wand
+  const wall = document.createElement('canvas');
+  wall.width = total; wall.height = height;
+  const ctx = wall.getContext('2d');
+  const primary = colors.primary || '#E4032E';
+  const secondary = colors.secondary || primary;
+  const type = decor.type || 'verloop';
+  if (type === 'custom' && decor.image) {
+    const s = Math.max(total / decor.image.width, height / decor.image.height);
+    const dw = decor.image.width * s, dh = decor.image.height * s;
+    ctx.drawImage(decor.image, (total - dw) / 2, (height - dh) / 2, dw, dh);
+  } else if (type === 'zwart') {
+    ctx.fillStyle = '#0a0a0a'; ctx.fillRect(0, 0, total, height);
+  } else if (type === 'effen1' || type === 'effen2') {
+    ctx.fillStyle = type === 'effen1' ? primary : secondary;
+    ctx.fillRect(0, 0, total, height);
+  } else {
+    const grad = ctx.createLinearGradient(0, 0, total, 0);
+    grad.addColorStop(0, primary);
+    grad.addColorStop(1, secondary);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, total, height);
+  }
+
+  // 2. logo op 1 of 2 plekken over de wand
+  if (logoImg && decor.logo !== false) {
+    const spots = decor.logoSpots === 1 ? [0.5] : [0.25, 0.75];
+    const maxH = height * 0.42;
+    const maxW = total * 0.18;
+    const s = Math.min(maxW / logoImg.width, maxH / logoImg.height);
+    const lw = logoImg.width * s, lh = logoImg.height * s;
+    for (const fx of spots) {
+      ctx.drawImage(logoImg, total * fx - lw / 2, height / 2 - lh / 2, lw, lh);
+    }
+  }
+
+  // 3. wand opdelen in de 4 delen (originele resolutie per deel)
+  let x = 0;
+  parts.forEach((p, i) => {
+    const slice = document.createElement('canvas');
+    slice.width = p.width || widths[i];
+    slice.height = p.height || height;
+    slice.getContext('2d').drawImage(wall, x, 0, widths[i], height, 0, 0, slice.width, slice.height);
+    swapHolderImage(p.holder, slice);
+    x += widths[i];
+  });
+  return parts.length;
+}
+
+/* ------------------------------------------------------------------ *
+ *  Grand Hall: middenscherm (16:9) met logo / zwart / eigen beeld     *
+ * ------------------------------------------------------------------ */
+
+function worldBox(mesh) {
+  if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+  mesh.updateWorldMatrix(true, false);
+  const bb = mesh.geometry.boundingBox;
+  const e = mesh.matrixWorld.elements;
+  const corners = [];
+  for (const x of [bb.min.x, bb.max.x]) for (const y of [bb.min.y, bb.max.y]) for (const z of [bb.min.z, bb.max.z]) {
+    corners.push({
+      x: e[0] * x + e[4] * y + e[8] * z + e[12],
+      y: e[1] * x + e[5] * y + e[9] * z + e[13],
+      z: e[2] * x + e[6] * y + e[10] * z + e[14],
+    });
+  }
+  const min = { x: Infinity, y: Infinity, z: Infinity }, max = { x: -Infinity, y: -Infinity, z: -Infinity };
+  for (const c of corners) for (const k of ['x', 'y', 'z']) { min[k] = Math.min(min[k], c[k]); max[k] = Math.max(max[k], c[k]); }
+  return { min, max, size: { x: max.x - min.x, y: max.y - min.y, z: max.z - min.z },
+           center: { x: (min.x + max.x) / 2, y: (min.y + max.y) / 2, z: (min.z + max.z) / 2 } };
+}
+
+function pillarLogoRects(scene) {
+  const rects = [];
+  scene.traverse((o) => {
+    if (o.isMesh && /^Rectangle/.test(o.name || '') &&
+        o.parent && /NBC logo's pilaar/i.test(o.parent.name || '')) rects.push(o);
+  });
+  return rects;
+}
+
+function firstMaterial(mesh) { return Array.isArray(mesh.material) ? mesh.material[0] : mesh.material; }
+
+/**
+ * Richt het Grand Hall-middenscherm in:
+ *  - verbergt de "Welkom"-tekst
+ *  - claimt één pilaar-logovlak + bijbehorende texture-holder exclusief
+ *    (de overige pilaarvlakken met datzelfde materiaal krijgen het materiaal
+ *    van een ander vlak in hun eigen groep, zodat pilaren intact blijven)
+ *  - schaalt het vlak exact passend op het rechthoekige middenscherm
+ *  - vult het met: logo op transparant (kleur-modus), logo op zwart, of een
+ *    eigen 16:9-beeld
+ */
+/**
+ * Zoek het vlak dat we op het Grand Hall-middenscherm plaatsen (een pilaar-
+ * logovlak dat tegen de achterwand kijkt, dus vrijwel onzichtbaar) én de
+ * holder die de textuur ervan levert. Zodat applyBranding die holder precies
+ * één keer kan swappen (dubbele swaps breken de render).
+ */
+/** Maten van het Grand Hall-middenscherm (de "Cube" in "Scherm midden"). */
+export function grandHallScreenSize(app) {
+  const scene = app._scene;
+  let cube = null, schermMidden = null;
+  scene.traverse((o) => { if (!schermMidden && (o.name || '').trim() === 'Scherm midden') schermMidden = o; });
+  if (schermMidden) schermMidden.traverse((o) => { if (!cube && o.isMesh && /^Cube/.test((o.name || '').trim())) cube = o; });
+  if (!cube) return null;
+  const cb = worldBox(cube);
+  return { cube, w: Math.max(cb.size.x, cb.size.z), h: cb.size.y, center: cb.center };
+}
+
+export function findGrandHallPlane(app, pilarenAssets = []) {
+  const scene = app._scene;
+  const rects = pillarLogoRects(scene);
+  let plane = null;
+  scene.traverse((o) => { if (!plane && o.name === 'brand-logo-grandhall') plane = o; });
+  if (!plane) {
+    let bestZ = -Infinity;
+    for (const r of rects) {
+      r.updateWorldMatrix(true, false);
+      const z = r.matrixWorld.elements[14];
+      if (z > bestZ) { bestZ = z; plane = r; }
+    }
+  }
+  if (!plane) return null;
+  const planeMat = firstMaterial(plane);
+  const holderEntry = pilarenAssets.find((a) =>
+    holderTexturesOf(a.holder).some((t) => materialUsesTexture(planeMat, t))) || null;
+  return { plane, planeMat, holder: holderEntry ? holderEntry.holder : null };
+}
+
+/**
+ * Bouw de content-canvas voor het Grand Hall-middenscherm.
+ *
+ * BELANGRIJK: de canvas moet EXACT de pixelmaten van de originele holder-
+ * afbeelding hebben — Spline alloceert de GPU-textuur op vaste grootte en
+ * negeert uploads met andere afmetingen (de oude afbeelding blijft dan
+ * zichtbaar). Omdat het vlak op schermverhouding wordt geschaald terwijl de
+ * canvas de holderverhouding houdt, wordt de inhoud eerst op schermverhouding
+ * gecomponeerd en daarna in de holdermaat "voorvervormd": na de UV-mapping op
+ * het vlak kloppen de verhoudingen (logo dus nooit uitgerekt).
+ */
+function buildGrandHallContent(app, { mode, image, logoImg, aspect = 16 / 9, holderW = 426, holderH = 191 }) {
+  // 1. componeer op schermverhouding
+  const W = 1280;
+  const H = Math.max(2, Math.round(W / Math.max(aspect, 1e-6)));
+  const tmp = document.createElement('canvas');
+  tmp.width = W; tmp.height = H;
+  const tctx = tmp.getContext('2d');
+  if (image) {
+    const s = Math.max(W / image.width, H / image.height);
+    tctx.drawImage(image, (W - image.width * s) / 2, (H - image.height * s) / 2, image.width * s, image.height * s);
+  } else {
+    if (mode === 'zwart') { tctx.fillStyle = '#0a0a0a'; tctx.fillRect(0, 0, W, H); }
+    if (logoImg) {
+      const s = Math.min((W * 0.6) / logoImg.width, (H * 0.6) / logoImg.height);
+      const lw = logoImg.width * s, lh = logoImg.height * s;
+      tctx.drawImage(logoImg, (W - lw) / 2, (H - lh) / 2, lw, lh);
+    }
+  }
+  // 2. voorvervormen naar de exacte holdermaat
+  const content = document.createElement('canvas');
+  content.width = holderW; content.height = holderH;
+  content.getContext('2d').drawImage(tmp, 0, 0, holderW, holderH);
+  return content;
+}
+
+export function setupGrandHallScreen(app, { mode = 'kleur', image = null, logoImg = null, planeInfo = null }) {
+  const scene = app._scene;
+  let welkom = null, cube = null, schermMidden = null;
+  scene.traverse((o) => {
+    if (!schermMidden && (o.name || '').trim() === 'Scherm midden') schermMidden = o;
+  });
+  if (schermMidden) {
+    schermMidden.traverse((o) => {
+      if (!welkom && o.isMesh && (o.name || '').trim() === 'Welkom') welkom = o;
+      if (!cube && o.isMesh && /^Cube/.test((o.name || '').trim())) cube = o;
+    });
+  }
+  if (!welkom || !cube || !planeInfo || !planeInfo.plane) return false;
+
+  // Welkom-tekst weg
+  const wparent = welkom.parent && /welkom/i.test(welkom.parent.name || '') ? welkom.parent : welkom;
+  wparent.visible = false;
+
+  const plane = planeInfo.plane;
+  const planeMat = planeInfo.planeMat || firstMaterial(plane);
+  if (planeMat) { planeMat.side = 2; planeMat.needsUpdate = true; }
+
+  // maten van het middenscherm
+  const cb = worldBox(cube);
+  const screenW = Math.max(cb.size.x, cb.size.z);
+  const screenH = cb.size.y;
+
+  // NB: de holder-content is al vroeg in applyBranding geswapt (binnen de
+  // pilaren-lus). Spline cachet de GPU-textuur, dus dat moet in die fase.
+
+  // Wereldbasis = oriëntatie van de "Welkom"-tekst (staat al plat op het
+  // scherm), genormaliseerd, gepositioneerd op het schermmidden.
+  welkom.updateWorldMatrix(true, false);
+  const base = welkom.matrixWorld.clone();
+  const be = base.elements;
+  for (let col = 0; col < 3; col++) {
+    const i = col * 4;
+    const len = Math.hypot(be[i], be[i + 1], be[i + 2]) || 1;
+    be[i] /= len; be[i + 1] /= len; be[i + 2] /= len;
+  }
+  be[12] = cb.center.x; be[13] = cb.center.y; be[14] = cb.center.z - 2.5;
+  base.multiply(base.clone().makeRotationZ(Math.PI / 2));
+  base.multiply(base.clone().makeRotationY(Math.PI));
+
+  // Lokale geometrie-maat van het vlak over ALLE drie assen — de geometrie
+  // kan in het XY- óf XZ-vlak liggen (één as is vrijwel nul: de normaal).
+  if (!plane.geometry.boundingBox) plane.geometry.computeBoundingBox();
+  const gb = plane.geometry.boundingBox;
+  const ext = [gb.max.x - gb.min.x, gb.max.y - gb.min.y, gb.max.z - gb.min.z];
+
+  // De twee grootste assen zijn de vlak-assen; bepaal per vlak-as of hij na
+  // de base-rotatie horizontaal of verticaal in de wereld ligt (via de
+  // wereld-Y-component van de bijbehorende basiskolom: klein = horizontaal).
+  const e0 = base.elements; // kolommen zijn genormaliseerd (rotaties behouden lengte)
+  const order = [0, 1, 2].sort((a, b) => ext[b] - ext[a]);
+  const [axisA, axisB] = order;           // de twee vlak-assen
+  const vertA = Math.abs(e0[axisA * 4 + 1]);
+  const vertB = Math.abs(e0[axisB * 4 + 1]);
+  const widthAxis = vertA <= vertB ? axisA : axisB;   // meest horizontale as
+  const heightAxis = widthAxis === axisA ? axisB : axisA;
+
+  const targetW = screenW * 0.965, targetH = screenH * 0.95;
+
+  // Native wereldmaat en originele scale van het vlak vastleggen (één keer;
+  // bij herbranding is het vlak al verplaatst en gebruiken we de bewaarde
+  // waarden). Empirisch bepaald met kleurmetingen: na de rotZ90-basis stuurt
+  // scale.y de gerenderde BREEDTE (t.o.v. de native hoogte H0) en scale.x de
+  // gerenderde HOOGTE (t.o.v. de native breedte W0).
+  if (!plane.userData) plane.userData = {};
+  if (!plane.userData.__nbcNative) {
+    const nb = worldBox(plane);
+    plane.userData.__nbcNative = {
+      W0: Math.max(nb.size.x, nb.size.z, 1e-6),
+      H0: Math.max(nb.size.y, 1e-6),
+      scale: { x: plane.scale.x, y: plane.scale.y, z: plane.scale.z },
+    };
+  }
+  const nat = plane.userData.__nbcNative;
+
+  // positie + rotatie via decompose van de (ongeschaalde) basis
+  plane.parent.updateWorldMatrix(true, false);
+  const local = plane.parent.matrixWorld.clone().invert().multiply(base);
+  // Empirisch gekalibreerd (groene-canvas metingen op de congres-scène):
+  // bij deze basis+rotatie levert 1 eenheid scale.x ≈ 5,2 wereld-eenheden
+  // hoogte en 1 eenheid scale.y ≈ 21,8 wereld-eenheden breedte.
+  const WORLD_PER_SCALE_X = 5.2;
+  const WORLD_PER_SCALE_Y = 21.8;
+  const applyTransform = () => {
+    local.decompose(plane.position, plane.quaternion, plane.scale);
+    plane.scale.set(targetH / WORLD_PER_SCALE_X, targetW / WORLD_PER_SCALE_Y, plane.scale.z);
+    plane.updateMatrix();
+    plane.updateWorldMatrix(true, false);
+    if (app.requestRender) app.requestRender();
+  };
+  applyTransform();
+  // Spline's intro-animatie ("pop-in") schrijft tijdens de eerste seconden
+  // elke frame de scale uit het datamodel terug. Daarom dwingen we onze
+  // transform per frame af totdat de intro voorbij is (ruim genomen, want
+  // onder software-rendering duurt de intro veel langer).
+  if (plane.userData.__nbcGuard) cancelAnimationFrame(plane.userData.__nbcGuard);
+  const guardUntil = performance.now() + 30000;
+  const guard = () => {
+    applyTransform();
+    if (performance.now() < guardUntil) {
+      plane.userData.__nbcGuard = requestAnimationFrame(guard);
+    }
+  };
+  plane.userData.__nbcGuard = requestAnimationFrame(guard);
+
+  plane.name = 'brand-logo-grandhall';
+  return { planeW: targetW, planeH: targetH };
+}
+
+function holderTexturesOf(holder) {
+  const found = [];
+  const seen = new Set();
+  const scan = (v, depth) => {
+    if (!v || typeof v !== 'object' || depth > 6 || seen.has(v)) return;
+    seen.add(v);
+    if (v.isTexture) { found.push(v); return; }
+    if (v instanceof Map) { for (const x of v.values()) scan(x, depth + 1); return; }
+    if (Array.isArray(v)) { for (const x of v) scan(x, depth + 1); return; }
+    for (const k of Object.keys(v)) {
+      if (k === 'shared' || k === 'thisContext') continue;
+      scan(v[k], depth + 1);
+    }
+  };
+  scan(holder._cache, 0);
+  return found;
+}
+
+function materialUsesTexture(material, tex) {
+  let found = false;
+  const seen = new Set();
+  const walk = (obj, depth) => {
+    if (found || !obj || typeof obj !== 'object' || depth > 8 || seen.has(obj)) return;
+    seen.add(obj);
+    if (obj === tex) { found = true; return; }
+    if (obj instanceof Map) { for (const v of obj.values()) walk(v, depth + 1); return; }
+    if (Array.isArray(obj)) { for (const v of obj) walk(v, depth + 1); return; }
+    for (const k of Object.keys(obj)) {
+      if (k.startsWith('__') || ['parent', 'children', 'shared', 'thisContext'].includes(k)) continue;
+      const v = obj[k];
+      if (v && typeof v === 'object') walk(v, depth + 1);
+    }
+  };
+  walk(material, 0);
+  return found;
+}
+
+/* ------------------------------------------------------------------ *
+ *  LED-pilaren: volledig vullen met eigen (staand) beeld              *
+ * ------------------------------------------------------------------ */
+
+/**
+ * Schaalt alle pilaar-logovlakken op tot de volledige pilaarmaat, zodat een
+ * geüpload (staand) beeld de hele pilaar aan 4 zijden vult.
+ */
+export function fillPillarsWithImage(app, image, pilarenAssets) {
+  const scene = app._scene;
+  // Staand beeld componeren en daarna voorvervormen naar de EXACTE originele
+  // holdermaat (Spline weigert texture-uploads met andere afmetingen). De
+  // vlakken worden hieronder tot volledige pilaarhoogte geschaald (~1:5),
+  // waardoor de voorvervormde inhoud weer de juiste verhoudingen krijgt.
+  const tmp = coverCanvas(image, 512, 2560);
+  for (const a of pilarenAssets) {
+    const c = document.createElement('canvas');
+    c.width = a.width || 426; c.height = a.height || 191;
+    c.getContext('2d').drawImage(tmp, 0, 0, c.width, c.height);
+    swapHolderImage(a.holder, c);
+  }
+
+  let scaled = 0;
+  scene.traverse((group) => {
+    if (!/NBC logo's pilaar/i.test(group.name || '')) return;
+    // pilaarmaat bepalen via het zustervlak "Pilaar 2" in de oudergroep
+    let pillar = null;
+    if (group.parent) pillar = (group.parent.children || []).find((s) => s.isMesh && /^Pilaar/.test(s.name || ''));
+    if (!pillar) return;
+    const pbox = worldBox(pillar);
+    for (const r of group.children || []) {
+      if (!r.isMesh || r.name === 'brand-logo-grandhall') continue;
+      const rbox = worldBox(r);
+      const curH = Math.max(rbox.size.y, 1e-6);
+      const curW = Math.max(rbox.size.x, rbox.size.z, 1e-6);
+      const targetH = pbox.size.y * 0.985;
+      const targetW = Math.max(pbox.size.x, pbox.size.z) * 1.0;
+      // lokale y-as is verticaal voor deze vlakken
+      r.scale.y *= targetH / curH;
+      r.scale.x *= targetW / curW;
+      r.updateMatrix();
+      // verticaal centreren op de pilaar
+      r.updateWorldMatrix(true, false);
+      const nbox = worldBox(r);
+      const dy = pbox.center.y - nbox.center.y;
+      if (Math.abs(dy) > 0.01 && r.parent) {
+        // wereld-dy omrekenen naar parent-ruimte (aanname: geen scheve parent-scaling)
+        r.position.y += dy / (r.parent.getWorldScale ? 1 : 1);
+        r.updateMatrix();
+      }
+      scaled++;
+    }
+  });
+  if (app.requestRender) app.requestRender();
+  return scaled;
+}
+
+/* ------------------------------------------------------------------ *
+ *  Hoofd-API                                                          *
+ * ------------------------------------------------------------------ */
+
+/**
+ * Pas branding toe op een geladen Spline Application.
+ *
+ * config:
+ *   colors:    { primary, secondary }
+ *   logo:      URL/data-URI (png met transparantie)
+ *   screens:   { pilaren?, ledwall?, narrowcasting?, tv? } — eigen beeld per groep
+ *   eventhall: { decor: 'verloop'|'effen1'|'effen2'|'zwart'|'custom', image?, logoSpots? }
+ *   grandhall: { mode: 'kleur'|'zwart', image? } — alleen het middenscherm (16:9)
+ *   halls:     { eventhall?, grandhall?, hosp1?, hosp2? } — opstelling tonen/verbergen
+ *   lights:    true om ook de lichten om te kleuren
+ */
 export async function applyBranding(app, config = {}) {
-  const { colors = {}, logo = null, screens = {}, allScreens = null } = config;
+  const { colors = {}, logo = null, screens = {} } = config;
   const primary = colors.primary || null;
   const secondary = colors.secondary || null;
 
@@ -425,45 +779,93 @@ export async function applyBranding(app, config = {}) {
   for (const [role, src] of Object.entries(screens)) {
     if (src) overrides[role] = await loadImage(src);
   }
-  const allImg = allScreens ? await loadImage(allScreens) : null;
+  const eventhallCfg = { ...(config.eventhall || {}) };
+  if (eventhallCfg.image) eventhallCfg.image = await loadImage(eventhallCfg.image);
+  if (!eventhallCfg.image && overrides.eventhall) { eventhallCfg.type = 'custom'; eventhallCfg.image = overrides.eventhall; }
+  const grandhallCfg = { ...(config.grandhall || {}) };
+  if (grandhallCfg.image) grandhallCfg.image = await loadImage(grandhallCfg.image);
+  if (!grandhallCfg.image && overrides.grandhall) grandhallCfg.image = overrides.grandhall;
 
-  const result = { swapped: [], recolored: 0, lights: 0, skipped: [], grandHallLogo: false };
+  const result = { swapped: [], recolored: 0, lights: 0, skipped: [], grandhall: false, eventhallParts: 0, pillarsFilled: 0 };
 
-  for (const asset of listImageAssets(app)) {
+  const assets = listImageAssets(app);
+  const pilarenAssets = assets.filter((a) => a.name && roleFor(a.name) === 'pilaren');
+
+  // Grand Hall-vlak + holder vooraf bepalen zodat we die holder overslaan bij
+  // het pilaren-swappen (elke holder mag maar één keer geswapt worden).
+  const ghInfo = findGrandHallPlane(app, pilarenAssets);
+  const ghHolder = ghInfo && ghInfo.holder;
+  const wantGrandhall = !!(logoImg || grandhallCfg.image || grandhallCfg.mode === 'zwart');
+
+  const ghScreen = grandHallScreenSize(app);
+  const ghAsset = ghHolder ? pilarenAssets.find((a) => a.holder === ghHolder) : null;
+  // Content voor het Grand Hall-vlak. Wordt hieronder BINNEN de pilaren-lus
+  // geswapt en heeft EXACT de originele holdermaat (Spline weigert uploads met
+  // andere afmetingen); de inhoud is voorvervormd op de schermverhouding.
+  const ghContent = (ghInfo && ghHolder && wantGrandhall) ? buildGrandHallContent(app, {
+    mode: grandhallCfg.mode || 'kleur', image: grandhallCfg.image || null, logoImg,
+    aspect: ghScreen ? ghScreen.w / Math.max(ghScreen.h, 1e-6) : 16 / 9,
+    holderW: (ghAsset && ghAsset.width) || 426,
+    holderH: (ghAsset && ghAsset.height) || 191,
+  }) : null;
+
+  // 1. losse schermgroepen (ledwall, narrowcasting, tv) — volledig element vullen
+  for (const asset of assets) {
     if (!asset.name || PROTECTED_ASSETS.test(asset.name) || asset.isVideo) { result.skipped.push(asset.name); continue; }
     const role = roleFor(asset.name);
-    if (!role) { result.skipped.push(asset.name); continue; }
-
-    let replacement = overrides[role] || null;
-    if (!replacement && role === 'pilaren') {
-      // pilaren: alleen het logo vervangen (transparant), het kleurverloop
-      // eronder wordt via recolorBrandColors in de huisstijl gezet
-      if (logoImg) replacement = makeLogoCanvas(logoImg, asset.width || 852, asset.height || 382);
-    } else if (!replacement) {
-      replacement = allImg || null;
-      if (!replacement && primary) {
-        replacement = makeBrandCanvas({
-          logoImg, primary, secondary,
-          width: asset.width || 1280,
-          height: asset.height || 720,
-        });
-      }
+    if (!role || role === 'eventhall' || role === 'pilaren') continue;
+    let replacement = null;
+    if (overrides[role]) {
+      replacement = coverCanvas(overrides[role], asset.width || 1600, asset.height || 900);
+    } else if (primary) {
+      replacement = makeBrandCanvas({ logoImg, primary, secondary, width: asset.width || 1280, height: asset.height || 720 });
     }
     if (!replacement) continue;
     swapHolderImage(asset.holder, replacement);
     result.swapped.push({ asset: asset.name, role });
   }
 
-  // NBC-verloop (pilaren, Grand Hall-scherm, LED-accenten) → huisstijlkleuren
-  if (primary) result.recolored = recolorBrandColors(app, primary, secondary);
-
-  // klantlogo op het Grand Hall-projectiescherm (op de plek van het NBC-logo)
-  if (logoImg && config.grandHallLogo !== false) {
-    result.grandHallLogo = overlayLogoOnGrandHall(app, config.grandHallLogoTransform || {});
+  // 2. pilaren + Grand Hall-vlak. Het vlak deelt een holder met de pilaren;
+  //    die holder krijgt (bij zwart/eigen beeld) de Grand Hall-content, de rest
+  //    het logo. Alles in deze lus, zodat de swaps zeker renderen.
+  if (overrides.pilaren) {
+    result.pillarsFilled = fillPillarsWithImage(app, overrides.pilaren, pilarenAssets.filter((a) => a.holder !== ghHolder));
+    if (ghContent && ghHolder) swapHolderImage(ghHolder, ghContent); // in dezelfde fase
+  } else if (logoImg) {
+    for (const a of pilarenAssets) {
+      if (a.holder === ghHolder && ghContent) {
+        swapHolderImage(a.holder, ghContent);
+      } else {
+        swapHolderImage(a.holder, makeLogoCanvas(logoImg, a.width || 852, a.height || 382));
+      }
+      result.swapped.push({ asset: a.name, role: 'pilaren' });
+    }
+  } else if (ghContent && ghHolder) {
+    // geen logo en geen pilaren-upload, maar wél Grand Hall-content
+    // (zwart scherm of eigen beeld) — dan alleen die holder swappen
+    swapHolderImage(ghHolder, ghContent);
   }
 
-  // opstellingen per hal aan/uit — bijv. halls: { eventhall: false } verbergt
-  // de Event Hall-opstelling (stoelen/barren/tafels)
+  // 3. Event Hall-decorwand (één doorlopend beeld over de 4 delen)
+  if (primary || eventhallCfg.image) {
+    result.eventhallParts = applyEventhallDecor(app, { decor: eventhallCfg, colors, logoImg });
+  }
+
+  // 4. NBC-verloop (pilaren, Grand Hall-scherm, LED-accenten) → huisstijlkleuren
+  if (primary) result.recolored = recolorBrandColors(app, primary, secondary);
+
+  // 5. Grand Hall-middenscherm: vlak verplaatsen/schalen op het scherm
+  //    (de content is al vroeg geswapt)
+  if (ghInfo && wantGrandhall) {
+    result.grandhall = setupGrandHallScreen(app, {
+      mode: grandhallCfg.mode || 'kleur',
+      image: grandhallCfg.image || null,
+      logoImg,
+      planeInfo: ghInfo,
+    });
+  }
+
+  // 6. opstellingen per hal aan/uit
   if (config.halls && typeof config.halls === 'object') {
     result.halls = setHallVisibility(app, config.halls);
   }

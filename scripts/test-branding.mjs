@@ -39,7 +39,7 @@ try {
   await page.waitForFunction('window.__branded === true', null, { timeout: 60000 });
   const rep = await page.evaluate('window.__brandReport');
   console.log('brandReport:', JSON.stringify({ ...rep, swapped: rep.swapped.length, skipped: rep.skipped.length }));
-  await new Promise((r) => setTimeout(r, 2500));
+  await new Promise((r) => setTimeout(r, 15000));
   await page.screenshot({ path: `scene-inspection/${key}-after.png` });
 
   // hal-toggles: Event Hall en Grand Hall opstelling uit
