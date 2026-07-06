@@ -20,6 +20,9 @@
   .colors { display: flex; gap: 14px; }
   .colors > div { flex: 1; }
   input[type=file] { font-size: 12px; width: 100%; }
+  .radios { display: flex; gap: 12px; flex-wrap: wrap; }
+  label.inline { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 13px; margin: 6px 0 0; }
+  label.switch { width: 100%; }
   button.primary {
     width: 100%; padding: 12px; margin-top: 8px; border: 0; border-radius: 10px;
     background: var(--accent); color: #fff; font-weight: 800; font-size: 14px; cursor: pointer;
@@ -44,6 +47,21 @@
       <legend>Event</legend>
       <label for="eventName">Naam opdrachtgever / event</label>
       <input type="text" id="eventName" placeholder="bijv. Coca-Cola Kickoff">
+    </fieldset>
+
+    <fieldset>
+      <legend>Opstelling</legend>
+      <label style="margin-top:0">Kies de opstelling voor dit event</label>
+      <div class="radios">
+        <label class="inline"><input type="radio" name="scene" value="congres" checked> Congres</label>
+        <label class="inline"><input type="radio" name="scene" value="feest"> Feest</label>
+        <label class="inline"><input type="radio" name="scene" value="sitdown"> Sit-down dinner</label>
+      </div>
+      <label>Ruimtes in gebruik</label>
+      <label class="inline switch"><input type="checkbox" id="hall-eventhall" checked> Event Hall-opstelling tonen</label>
+      <label class="inline switch"><input type="checkbox" id="hall-grandhall" checked> Grand Hall-opstelling tonen</label>
+      <label class="inline switch" style="margin-top:10px"><input type="checkbox" id="allowSwitch" checked> Klant mag tussen opstellingen wisselen</label>
+      <p class="hint">Uitgevinkte ruimtes worden leeg getoond (stoelen, barren en podiumopstelling verborgen).</p>
     </fieldset>
 
     <fieldset>
@@ -105,12 +123,18 @@ async function buildConfig() {
     const f = $('img-' + role).files[0];
     if (f) screens[role] = await fileToDataUri(f);
   }
+  const scene = document.querySelector('input[name=scene]:checked').value;
   return {
     eventName: $('eventName').value.trim() || undefined,
     colors: { primary: $('c1').value, secondary: $('c2').value },
     logo: (await fileToDataUri($('logo').files[0], 800)) || undefined,
     screens: Object.keys(screens).length ? screens : undefined,
-    lights: false,
+    scene,
+    scenes: $('allowSwitch').checked ? undefined : [scene],
+    halls: {
+      eventhall: $('hall-eventhall').checked,
+      grandhall: $('hall-grandhall').checked,
+    },
   };
 }
 

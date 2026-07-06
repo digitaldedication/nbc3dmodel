@@ -37,10 +37,18 @@ try {
 
   await page.evaluate('window.__applyBranding()');
   await page.waitForFunction('window.__branded === true', null, { timeout: 60000 });
-  console.log('brandReport:', JSON.stringify(await page.evaluate('window.__brandReport'), null, 1));
+  const rep = await page.evaluate('window.__brandReport');
+  console.log('brandReport:', JSON.stringify({ ...rep, swapped: rep.swapped.length, skipped: rep.skipped.length }));
   await new Promise((r) => setTimeout(r, 2500));
   await page.screenshot({ path: `scene-inspection/${key}-after.png` });
-  console.log('screenshots: scene-inspection/' + key + '-before.png / -after.png');
+
+  // hal-toggles: Event Hall en Grand Hall opstelling uit
+  await page.evaluate('window.__applyBranding({ halls: { eventhall: false, grandhall: false } })');
+  await page.waitForFunction('window.__branded === true', null, { timeout: 60000 });
+  console.log('halls:', JSON.stringify(await page.evaluate('window.__brandReport.halls')));
+  await new Promise((r) => setTimeout(r, 2500));
+  await page.screenshot({ path: `scene-inspection/${key}-halls-off.png` });
+  console.log('screenshots: scene-inspection/' + key + '-{before,after,halls-off}.png');
 } finally {
   await browser.close();
   server.kill();

@@ -11,7 +11,7 @@ const config = {
   eventName: 'ACME Kickoff 2026',
   colors: { primary: '#E4032E', secondary: '#1B2A7B' },
   scene: 'congres',
-  lights: false,
+  halls: { eventhall: true, grandhall: false },
 };
 const b64 = Buffer.from(JSON.stringify(config)).toString('base64url');
 

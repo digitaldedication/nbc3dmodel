@@ -47,6 +47,8 @@ const SCENES = {
   sitdown: { url: '/assets/spline/sitdown/scene.splinecode', label: 'Sit down dinner' },
   lounge:  { url: '/assets/spline/lounge/scene.splinecode',  label: 'Verdieping 2' },
 };
+// lounge alleen tonen als de config er expliciet om vraagt
+const DEFAULT_SCENE_KEYS = ['congres', 'feest', 'sitdown'];
 
 const statusEl = document.getElementById('status');
 const badgeEl = document.getElementById('badge');
@@ -102,7 +104,7 @@ function initUI() {
     span.textContent = 'NBC' + (config.eventName ? ' × ' + config.eventName : '');
     badgeEl.appendChild(span);
   }
-  const keys = (config.scenes && config.scenes.length ? config.scenes : Object.keys(SCENES))
+  const keys = (config.scenes && config.scenes.length ? config.scenes : DEFAULT_SCENE_KEYS)
     .filter((k) => SCENES[k]);
   if (keys.length > 1) {
     scenesEl.style.display = 'flex';

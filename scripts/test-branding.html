@@ -35,13 +35,17 @@ async function run() {
   window.__ready = true;
 }
 
-window.__applyBranding = async () => {
+window.__applyBranding = async (extra = {}) => {
+  window.__branded = false;
   const report = await applyBranding(window.__app, {
     colors: { primary: '#E4032E', secondary: '#1B2A7B' },
     logo: makeTestLogo(),
-    lights: false,
+    ...extra,
   });
-  window.__brandReport = { swapped: report.swapped, lights: report.lights, skipped: report.skipped };
+  window.__brandReport = {
+    swapped: report.swapped, recolored: report.recolored,
+    grandHallLogo: report.grandHallLogo, halls: report.halls, skipped: report.skipped,
+  };
   window.__branded = true;
 };
 
