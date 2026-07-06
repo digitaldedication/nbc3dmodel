@@ -118,7 +118,15 @@
 
 <script type="module">
 const $ = (id) => document.getElementById(id);
-const VIEWER = new URL('../viewer/', location.href).href;
+// projectbasis bepalen, robuust voor URL's met of zonder afsluitende slash
+// (bijv. …github.io/nbc3dmodel/admin, …/admin/ of …/admin/index.html)
+function projectBase() {
+  const u = new URL(location.href);
+  u.hash = ''; u.search = '';
+  u.pathname = u.pathname.replace(/\/admin(\/(index\.html)?)?$/, '') + '/';
+  return u.href;
+}
+const VIEWER = projectBase() + 'viewer/';
 const STORE_KEY = 'nbc3d-events-v1';
 
 function toast(msg) {

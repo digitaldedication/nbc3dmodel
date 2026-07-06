@@ -50,9 +50,14 @@ function fail(msg) {
 window.addEventListener('error', (e) => fail('Er ging iets mis: ' + (e.message || 'onbekende fout')));
 window.addEventListener('unhandledrejection', (e) => fail('Er ging iets mis: ' + (e.reason && e.reason.message || e.reason || 'onbekende fout')));
 
-// Alle paden relatief aan deze pagina, zodat het ook onder een subpad werkt
-// (bijv. github.io/nbc3dmodel/viewer/).
-const BASE = new URL('..', import.meta.url);
+// Alle paden relatief aan de projectbasis, zodat het ook onder een subpad
+// werkt (bijv. github.io/nbc3dmodel/viewer/), met of zonder afsluitende slash.
+const BASE = (() => {
+  const u = new URL(location.href);
+  u.hash = ''; u.search = '';
+  u.pathname = u.pathname.replace(/\/viewer(\/(index\.html)?)?$/, '') + '/';
+  return u;
+})();
 const url = (p) => new URL(p, BASE).href;
 
 let Application, applyBranding, initTooltips;
