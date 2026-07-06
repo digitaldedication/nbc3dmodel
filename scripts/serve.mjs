@@ -15,6 +15,8 @@ const mime = {
 http.createServer((req, res) => {
   const url = new URL(req.url, 'http://x');
   let path = normalize(decodeURIComponent(url.pathname)).replace(/^([/\\])+/, '');
+  // simuleer GitHub Pages-subpad (…github.io/nbc3dmodel/…)
+  path = path.replace(/^nbc3dmodel[/\\]?/, '');
   let file = join(root, path);
   if (!file.startsWith(root)) { res.writeHead(403); res.end(); return; }
   if (existsSync(file) && statSync(file).isDirectory()) file = join(file, 'index.html');

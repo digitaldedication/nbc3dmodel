@@ -3,16 +3,17 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>NBC 3D — beheeromgeving (demo)</title>
+<meta name="robots" content="noindex, nofollow">
+<title>NBC 3D — beheeromgeving</title>
 <style>
   :root { --ink: #16181a; --bg: #f4f6f7; --card: #fff; --accent: #16181a; }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; background: var(--bg); color: var(--ink); }
-  main { display: grid; grid-template-columns: 380px 1fr; height: 100vh; }
-  aside { padding: 24px; overflow-y: auto; background: var(--card); border-right: 1px solid #e3e7e9; }
+  main { display: grid; grid-template-columns: 400px 1fr; height: 100vh; }
+  aside { padding: 22px; overflow-y: auto; background: var(--card); border-right: 1px solid #e3e7e9; }
   h1 { font-size: 19px; margin: 0 0 4px; }
-  p.sub { margin: 0 0 20px; font-size: 13px; color: #5a6468; }
-  fieldset { border: 1px solid #e3e7e9; border-radius: 12px; margin: 0 0 16px; padding: 14px; }
+  p.sub { margin: 0 0 18px; font-size: 13px; color: #5a6468; }
+  fieldset { border: 1px solid #e3e7e9; border-radius: 12px; margin: 0 0 14px; padding: 14px; }
   legend { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; padding: 0 6px; }
   label { display: block; font-size: 13px; font-weight: 600; margin: 10px 0 4px; }
   input[type=text] { width: 100%; padding: 8px 10px; border: 1px solid #cfd6d9; border-radius: 8px; font-size: 14px; }
@@ -31,27 +32,42 @@
     width: 100%; padding: 10px; margin-top: 8px; border: 1px solid #cfd6d9; border-radius: 10px;
     background: #fff; font-weight: 700; font-size: 13px; cursor: pointer;
   }
-  #share { margin-top: 12px; font-size: 12px; word-break: break-all; background: #f0f3f4; border-radius: 8px; padding: 10px; display: none; }
-  #share a { color: #0a58ca; }
+  #events { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+  .event {
+    border: 1px solid #e3e7e9; border-radius: 10px; padding: 10px 12px; font-size: 12.5px;
+    display: flex; flex-direction: column; gap: 6px; background: #fafbfb;
+  }
+  .event b { font-size: 13.5px; }
+  .event .row { display: flex; gap: 6px; flex-wrap: wrap; }
+  .event button, .event a.btn {
+    border: 1px solid #cfd6d9; background: #fff; border-radius: 7px; padding: 4px 9px;
+    font: 700 11.5px system-ui; cursor: pointer; color: var(--ink); text-decoration: none;
+  }
+  .event .tok { color: #5a6468; font-family: ui-monospace, monospace; font-size: 11px; }
+  #preview { position: relative; }
   iframe { width: 100%; height: 100%; border: 0; }
   .hint { font-size: 11.5px; color: #5a6468; margin-top: 6px; }
+  #toast {
+    position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+    background: #16181a; color: #fff; font: 700 13px system-ui; padding: 10px 18px;
+    border-radius: 999px; opacity: 0; transition: opacity .25s; pointer-events: none; z-index: 99;
+  }
 </style>
 </head>
 <body>
 <main>
   <aside>
     <h1>3D plattegrond voor sales</h1>
-    <p class="sub">Demo-beheeromgeving: stel per event de branding samen en deel een unieke, niet-herleidbare link met de opdrachtgever.</p>
+    <p class="sub">Stel per event de branding samen — rechts zie je direct het resultaat. Sla het event op om de deel-links te bewaren en later opnieuw te bewerken.</p>
 
     <fieldset>
       <legend>Event</legend>
-      <label for="eventName">Naam opdrachtgever / event</label>
+      <label for="eventName" style="margin-top:0">Naam opdrachtgever / event</label>
       <input type="text" id="eventName" placeholder="bijv. Coca-Cola Kickoff">
     </fieldset>
 
     <fieldset>
       <legend>Opstelling</legend>
-      <label style="margin-top:0">Kies de opstelling voor dit event</label>
       <div class="radios">
         <label class="inline"><input type="radio" name="scene" value="congres" checked> Congres</label>
         <label class="inline"><input type="radio" name="scene" value="feest"> Feest</label>
@@ -61,23 +77,22 @@
       <label class="inline switch"><input type="checkbox" id="hall-eventhall" checked> Event Hall-opstelling tonen</label>
       <label class="inline switch"><input type="checkbox" id="hall-grandhall" checked> Grand Hall-opstelling tonen</label>
       <label class="inline switch" style="margin-top:10px"><input type="checkbox" id="allowSwitch" checked> Klant mag tussen opstellingen wisselen</label>
-      <p class="hint">Uitgevinkte ruimtes worden leeg getoond (stoelen, barren en podiumopstelling verborgen).</p>
     </fieldset>
 
     <fieldset>
       <legend>Huisstijl</legend>
       <div class="colors">
-        <div><label for="c1">Kleur 1</label><input type="color" id="c1" value="#E4032E"></div>
-        <div><label for="c2">Kleur 2</label><input type="color" id="c2" value="#1B2A7B"></div>
+        <div><label for="c1" style="margin-top:0">Kleur 1</label><input type="color" id="c1" value="#E4032E"></div>
+        <div><label for="c2" style="margin-top:0">Kleur 2</label><input type="color" id="c2" value="#1B2A7B"></div>
       </div>
       <label for="logo">Logo (png, liefst met transparantie)</label>
       <input type="file" id="logo" accept="image/png,image/svg+xml,image/webp">
-      <p class="hint">Het logo komt op alle schermen, op een verloop van kleur 1 naar kleur 2, en in de header van de klantpagina.</p>
+      <p class="hint">Het logo komt op alle schermen, midden op het Grand Hall-scherm en in de header van de klantpagina.</p>
     </fieldset>
 
     <fieldset>
       <legend>Eigen beeld per schermgroep (optioneel)</legend>
-      <label for="img-eventhall">Groot scherm Event Hall</label>
+      <label for="img-eventhall" style="margin-top:0">Groot scherm Event Hall</label>
       <input type="file" id="img-eventhall" accept="image/*">
       <label for="img-ledwall">LED-wall entree</label>
       <input type="file" id="img-ledwall" accept="image/*">
@@ -88,18 +103,31 @@
       <p class="hint">Zonder eigen beeld krijgt de groep automatisch het kleurverloop + logo.</p>
     </fieldset>
 
-    <button class="primary" id="preview">Voorbeeld verversen</button>
-    <button class="ghost" id="makeLink">Deelbare link genereren</button>
-    <button class="ghost" id="downloadCfg">Config-bestand downloaden (voor /configs/)</button>
-    <div id="share"></div>
+    <button class="primary" id="save">Event opslaan + link maken</button>
+    <p class="hint">De preview rechts ververst automatisch na elke wijziging.</p>
+
+    <fieldset style="margin-top:14px">
+      <legend>Opgeslagen events</legend>
+      <div id="events"><p class="hint">Nog geen events opgeslagen.</p></div>
+      <p class="hint">Links blijven werken zolang het event hier bewaard is (opgeslagen in deze browser). "Deel-link" is zelfstandig en werkt direct; de "vaste link" (<code>?e=TOKEN</code>) vereist dat het gedownloade config-bestand in <code>configs/</code> op de server staat en blijft bij bewerken hetzelfde.</p>
+    </fieldset>
   </aside>
-  <section><iframe id="frame" src="/viewer/"></iframe></section>
+  <section id="preview"><iframe id="frame" title="Voorbeeld"></iframe></section>
 </main>
+<div id="toast"></div>
 
 <script type="module">
 const $ = (id) => document.getElementById(id);
+const VIEWER = new URL('../viewer/', location.href).href;
+const STORE_KEY = 'nbc3d-events-v1';
 
-/** Bestand → verkleinde data-URI (max 1600px breed) zodat links deelbaar blijven. */
+function toast(msg) {
+  const t = $('toast');
+  t.textContent = msg; t.style.opacity = '1';
+  clearTimeout(t._h); t._h = setTimeout(() => (t.style.opacity = '0'), 2600);
+}
+
+/** Bestand → verkleinde data-URI zodat links deelbaar blijven. */
 function fileToDataUri(file, maxW = 1600) {
   return new Promise((resolve, reject) => {
     if (!file) return resolve(null);
@@ -110,40 +138,44 @@ function fileToDataUri(file, maxW = 1600) {
       c.width = Math.round(img.width * s);
       c.height = Math.round(img.height * s);
       c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-      resolve(c.toDataURL(file.type === 'image/png' || file.type === 'image/svg+xml' ? 'image/png' : 'image/jpeg', 0.85));
+      resolve(c.toDataURL(file.type === 'image/jpeg' ? 'image/jpeg' : 'image/png'));
     };
     img.onerror = () => reject(new Error('Afbeelding niet leesbaar'));
     img.src = URL.createObjectURL(file);
   });
 }
 
+// geüploade bestanden onthouden (ook na bewerken van een opgeslagen event)
+const uploads = { logo: null, eventhall: null, ledwall: null, narrowcasting: null, pilaren: null };
+
 async function buildConfig() {
   const screens = {};
   for (const role of ['eventhall', 'ledwall', 'narrowcasting', 'pilaren']) {
     const f = $('img-' + role).files[0];
-    if (f) screens[role] = await fileToDataUri(f);
+    if (f) uploads[role] = await fileToDataUri(f);
+    if (uploads[role]) screens[role] = uploads[role];
   }
+  const logoFile = $('logo').files[0];
+  if (logoFile) uploads.logo = await fileToDataUri(logoFile, 800);
   const scene = document.querySelector('input[name=scene]:checked').value;
   return {
     eventName: $('eventName').value.trim() || undefined,
     colors: { primary: $('c1').value, secondary: $('c2').value },
-    logo: (await fileToDataUri($('logo').files[0], 800)) || undefined,
+    logo: uploads.logo || undefined,
     screens: Object.keys(screens).length ? screens : undefined,
     scene,
     scenes: $('allowSwitch').checked ? undefined : [scene],
-    halls: {
-      eventhall: $('hall-eventhall').checked,
-      grandhall: $('hall-grandhall').checked,
-    },
+    halls: { eventhall: $('hall-eventhall').checked, grandhall: $('hall-grandhall').checked },
   };
 }
 
 function packConfig(cfg) {
   const json = JSON.stringify(cfg);
-  const b64 = btoa(String.fromCharCode(...new TextEncoder().encode(json)))
+  return btoa(String.fromCharCode(...new TextEncoder().encode(json)))
     .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  return b64;
 }
+
+function hashLink(cfg) { return VIEWER + '#c=' + packConfig(cfg); }
 
 function randomToken(len = 22) {
   const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -151,35 +183,102 @@ function randomToken(len = 22) {
   return [...bytes].map((b) => chars[b % chars.length]).join('');
 }
 
-$('preview').addEventListener('click', async () => {
+/* ---------- live preview ---------- */
+let previewTimer = null;
+async function refreshPreview() {
   const cfg = await buildConfig();
-  $('frame').src = '/viewer/#c=' + packConfig(cfg);
+  $('frame').src = hashLink(cfg);
+}
+function schedulePreview() {
+  clearTimeout(previewTimer);
+  previewTimer = setTimeout(() => refreshPreview().catch(console.error), 900);
+}
+document.querySelector('aside').addEventListener('change', schedulePreview);
+$('eventName').addEventListener('input', schedulePreview);
+
+/* ---------- opgeslagen events ---------- */
+const loadEvents = () => { try { return JSON.parse(localStorage.getItem(STORE_KEY)) || []; } catch { return []; } };
+const saveEvents = (list) => localStorage.setItem(STORE_KEY, JSON.stringify(list));
+let editingToken = null;
+
+function renderEvents() {
+  const list = loadEvents();
+  const host = $('events');
+  host.innerHTML = list.length ? '' : '<p class="hint">Nog geen events opgeslagen.</p>';
+  for (const ev of list) {
+    const div = document.createElement('div');
+    div.className = 'event';
+    const link = hashLink(ev.config);
+    div.innerHTML = `<b></b><span class="tok"></span><div class="row"></div>`;
+    div.querySelector('b').textContent = ev.name || '(zonder naam)';
+    div.querySelector('.tok').textContent = 'token: ' + ev.token;
+    const row = div.querySelector('.row');
+    const mk = (label, fn) => { const b = document.createElement('button'); b.textContent = label; b.addEventListener('click', fn); row.appendChild(b); };
+    const open = document.createElement('a');
+    open.className = 'btn'; open.textContent = 'Open'; open.href = link; open.target = '_blank';
+    row.appendChild(open);
+    mk('Kopieer deel-link', async () => { await navigator.clipboard.writeText(link); toast('Deel-link gekopieerd'); });
+    mk('Kopieer vaste link', async () => { await navigator.clipboard.writeText(VIEWER + '?e=' + ev.token); toast('Vaste link gekopieerd (vereist config-bestand op server)'); });
+    mk('Download config', () => {
+      const blob = new Blob([JSON.stringify(ev.config, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob); a.download = ev.token + '.json'; a.click();
+      toast('Plaats ' + ev.token + '.json in configs/ op de server');
+    });
+    mk('Bewerken', () => loadIntoForm(ev));
+    mk('Verwijderen', () => {
+      if (!confirm('Event "' + (ev.name || ev.token) + '" verwijderen?')) return;
+      saveEvents(loadEvents().filter((x) => x.token !== ev.token));
+      if (editingToken === ev.token) editingToken = null;
+      renderEvents();
+    });
+    host.appendChild(div);
+  }
+}
+
+function loadIntoForm(ev) {
+  editingToken = ev.token;
+  const c = ev.config;
+  $('eventName').value = c.eventName || '';
+  $('c1').value = (c.colors && c.colors.primary) || '#E4032E';
+  $('c2').value = (c.colors && c.colors.secondary) || '#1B2A7B';
+  document.querySelector(`input[name=scene][value=${c.scene || 'congres'}]`).checked = true;
+  $('hall-eventhall').checked = !c.halls || c.halls.eventhall !== false;
+  $('hall-grandhall').checked = !c.halls || c.halls.grandhall !== false;
+  $('allowSwitch').checked = !(c.scenes && c.scenes.length === 1);
+  uploads.logo = c.logo || null;
+  for (const role of ['eventhall', 'ledwall', 'narrowcasting', 'pilaren']) {
+    uploads[role] = (c.screens && c.screens[role]) || null;
+    $('img-' + role).value = '';
+  }
+  $('logo').value = '';
+  toast('Event geladen — wijzig en sla opnieuw op (zelfde token)');
+  schedulePreview();
+}
+
+$('save').addEventListener('click', async () => {
+  const cfg = await buildConfig();
+  const list = loadEvents();
+  let token = editingToken;
+  const existing = token ? list.find((x) => x.token === token) : null;
+  if (existing) {
+    existing.config = cfg;
+    existing.name = cfg.eventName || existing.name;
+    existing.updatedAt = Date.now();
+  } else {
+    token = randomToken();
+    editingToken = token;
+    list.unshift({ token, name: cfg.eventName || '', config: cfg, updatedAt: Date.now() });
+  }
+  saveEvents(list);
+  renderEvents();
+  const link = hashLink(cfg);
+  try { await navigator.clipboard.writeText(link); toast('Opgeslagen — deel-link staat op je klembord'); }
+  catch { toast('Opgeslagen'); }
 });
 
-$('makeLink').addEventListener('click', async () => {
-  const cfg = await buildConfig();
-  const url = location.origin + '/viewer/#c=' + packConfig(cfg);
-  const el = $('share');
-  el.style.display = 'block';
-  el.innerHTML = `<strong>Deelbare link</strong> (zelfstandig, geen server nodig):<br><a href="${url}" target="_blank">${url.slice(0, 120)}…</a>
-    <p class="hint">Let op: bij grote afbeeldingen wordt deze link lang. Voor productie: gebruik het config-bestand + token-URL (<code>/viewer/?e=TOKEN</code>).</p>`;
-  try { await navigator.clipboard.writeText(url); el.innerHTML += '<p class="hint">✔ Gekopieerd naar klembord.</p>'; } catch {}
-});
-
-$('downloadCfg').addEventListener('click', async () => {
-  const cfg = await buildConfig();
-  const token = randomToken();
-  const blob = new Blob([JSON.stringify(cfg, null, 2)], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = token + '.json';
-  a.click();
-  const el = $('share');
-  el.style.display = 'block';
-  el.innerHTML = `<strong>Config gedownload:</strong> <code>${token}.json</code><br>
-    Plaats dit bestand in <code>/configs/</code> op de webserver; de klant-URL wordt dan:<br>
-    <a href="/viewer/?e=${token}" target="_blank">${location.origin}/viewer/?e=${token}</a>`;
-});
+renderEvents();
+refreshPreview().catch(console.error);
 </script>
 </body>
 </html>

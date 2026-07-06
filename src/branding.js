@@ -326,7 +326,7 @@ function shallowCloneMesh(src) {
   return c;
 }
 
-export function overlayLogoOnGrandHall(app, { width = 60, dx = 0, dy = 22, dz = -4, rotZ = 90, rotY = 180, debugCenter = false } = {}) {
+export function overlayLogoOnGrandHall(app, { width = 90, dx = 0, dy = 22, dz = -4, rotZ = 90, rotY = 180, hideWelkom = true, debugCenter = false } = {}) {
   const scene = app._scene;
   const candidates = [];
   let welkom = null;
@@ -341,6 +341,11 @@ export function overlayLogoOnGrandHall(app, { width = 60, dx = 0, dy = 22, dz = 
   // we verplaatsen een BESTAAND logovlak: van de achterste pilaar het vlak
   // dat het dichtst bij de achterwand zit (praktisch onzichtbaar).
   welkom.updateWorldMatrix(true, false);
+  // de "Welkom"-tekst verdwijnt; het logo komt in het midden van het scherm
+  if (hideWelkom) {
+    const parent = welkom.parent && /welkom/i.test(welkom.parent.name || '') ? welkom.parent : welkom;
+    parent.visible = false;
+  }
   let logoMesh = null, bestZ = -Infinity;
   for (const c of candidates) {
     c.updateWorldMatrix(true, false);

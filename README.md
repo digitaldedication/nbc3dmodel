@@ -9,6 +9,9 @@ schermcontent, deelbaar via een unieke, niet-herleidbare URL.
 - Alle schermen in het model (groot scherm Event Hall, LED-wall entree,
   registratie-/narrowcastingschermen, LED-pilaren) zijn runtime te vervangen
   door een geüpload beeld of een gegenereerde huisstijl-afbeelding.
+- **Tooltips zoals op de live site**: de ankers in de scène worden verborgen
+  en vervangen door klikbare pills met kaartjes (afbeelding, tekst,
+  capaciteitsvarianten), incl. de scheidingswand-toggle (`src/tooltips.js`).
 - Het **kleurverloop op de 9 LED-pilaren** en het **projectiescherm in de
   Grand Hall** wordt omgezet naar de 2 huisstijlkleuren (verloop en
   licht/donker-variatie blijven behouden), met het geüploade logo op het
@@ -33,6 +36,21 @@ schermcontent, deelbaar via een unieke, niet-herleidbare URL.
 | `admin/` | Demo-beheeromgeving: kleuren kiezen, logo/beelden uploaden, deelbare link genereren |
 | `scripts/` | Lokale server + Playwright-testen (inspectie, branding-PoC, viewer e2e) |
 | `docs/architectuur-analyse.md` | Technische analyse van de bestaande tool |
+
+## Hosting (GitHub Pages)
+
+De app is volledig statisch en draait onder elk (sub)pad, bijv.
+`https://digitaldedication.github.io/nbc3dmodel/`:
+
+- `…/admin/` — beheeromgeving met live preview
+- `…/viewer/` — klantpagina (kaal model zonder parameters)
+- `…/viewer/#c=…` — zelfstandige deel-link (config in de URL)
+- `…/viewer/?e=TOKEN` — vaste link; vereist `configs/TOKEN.json` in de repo
+  (download het bestand in de beheeromgeving en commit het naar `configs/`)
+
+De Spline-runtime is gevendored in `vendor/spline/` zodat er geen
+`node_modules` nodig is op de server. Let op: GitHub Pages moet de branch
+serveren waar deze code op staat (Settings → Pages).
 
 ## Lokaal draaien
 
