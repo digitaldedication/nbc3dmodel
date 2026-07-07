@@ -155,7 +155,7 @@
 
 <script type="module">
 const $ = (id) => document.getElementById(id);
-const ADMIN_VERSION = 'v7';
+const ADMIN_VERSION = 'v8';
 
 // Fouten nooit stil laten vallen: toon ze als melding onderin
 function showError(msg) {
@@ -239,9 +239,14 @@ async function buildConfig() {
 }
 
 function packConfig(cfg) {
-  const json = JSON.stringify(cfg);
-  return btoa(String.fromCharCode(...new TextEncoder().encode(json)))
-    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const bytes = new TextEncoder().encode(JSON.stringify(cfg));
+  // In blokken omzetten: fromCharCode(...alleBytes) crasht op grote configs
+  // (elke byte wordt een functie-argument → "Maximum call stack size exceeded")
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
 function hashLink(cfg) { return VIEWER + '#c=' + packConfig(cfg); }
@@ -283,6 +288,7 @@ function renderEvents() {
   const host = $('events');
   host.innerHTML = list.length ? '' : '<p class="hint">Nog geen events opgeslagen.</p>';
   for (const ev of list) {
+    try {
     const div = document.createElement('div');
     div.className = 'event';
     const link = hashLink(ev.config);
@@ -310,6 +316,10 @@ function renderEvents() {
       renderEvents();
     });
     host.appendChild(div);
+    } catch (e) {
+      // één kapot event mag de rest van de lijst (en het opslaan) niet blokkeren
+      showError('Event "' + (ev.name || ev.token) + '" kan niet worden getoond: ' + (e.message || e));
+    }
   }
 }
 
