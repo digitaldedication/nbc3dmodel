@@ -57,8 +57,10 @@ try {
   await new Promise((r) => setTimeout(r, 3000));
 
   await page.dispatchEvent('#save', 'click');
-  await new Promise((r) => setTimeout(r, 800));
-  const events = await page.evaluate(() => JSON.parse(localStorage.getItem('nbc3d-events-v1')).map((e) => ({ name: e.name, token: e.token, scene: e.config.scene })));
+  await new Promise((r) => setTimeout(r, 1500));
+  const toasts = await page.evaluate(() => [...document.querySelectorAll('.toast, #toasts *')].map((t) => t.textContent).slice(0, 5));
+  if (toasts.length) console.log('toasts:', JSON.stringify(toasts));
+  const events = await page.evaluate(() => JSON.parse(localStorage.getItem('nbc3d-events-v1') || '[]').map((e) => ({ name: e.name, token: e.token, scene: e.config.scene })));
   console.log('opgeslagen events:', JSON.stringify(events));
 
   await page.screenshot({ path: 'scene-inspection/admin.png' });

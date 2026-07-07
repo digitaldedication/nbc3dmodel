@@ -388,9 +388,11 @@ export function applyEventhallDecor(app, { decor = {}, colors = {}, logoImg = nu
   const secondary = colors.secondary || primary;
   const type = decor.type || 'verloop';
   if (type === 'custom' && decor.image) {
-    const s = Math.max(total / decor.image.width, height / decor.image.height);
-    const dw = decor.image.width * s, dh = decor.image.height * s;
-    ctx.drawImage(decor.image, (total - dw) / 2, (height - dh) / 2, dw, dh);
+    // STRETCH-fit: de decors zijn orthografische renders van exact deze wand
+    // (gekalibreerd: mapping ≈ identiteit). Cover-fit sneed ±2% van de randen
+    // af waardoor de paneelranden verschoven en er zwarte balken op de
+    // panelen vielen.
+    ctx.drawImage(decor.image, 0, 0, decor.image.width, decor.image.height, 0, 0, total, height);
   } else if (type === 'zwart') {
     ctx.fillStyle = '#0a0a0a'; ctx.fillRect(0, 0, total, height);
   } else if (type === 'effen1' || type === 'effen2') {
@@ -404,15 +406,20 @@ export function applyEventhallDecor(app, { decor = {}, colors = {}, logoImg = nu
     ctx.fillRect(0, 0, total, height);
   }
 
-  // 2. logo op 1 of 2 plekken over de wand
+  // 2. logo op 1 of 2 plekken op de wand — posities corresponderen met de
+  //    panelen van het decor: het grote paneel links van het midden
+  //    (wandfractie ±0,385) en de bol rechts (±0,865), verticaal iets onder
+  //    het midden zodat het logo binnen het paneel valt.
   if (logoImg && decor.logo !== false) {
-    const spots = decor.logoSpots === 1 ? [0.5] : [0.25, 0.75];
-    const maxH = height * 0.42;
-    const maxW = total * 0.18;
+    const spots = decor.logoSpots === 1
+      ? [{ fx: 0.385, fy: 0.58 }]
+      : [{ fx: 0.385, fy: 0.58 }, { fx: 0.865, fy: 0.58 }];
+    const maxH = height * 0.34;
+    const maxW = total * 0.13;
     const s = Math.min(maxW / logoImg.width, maxH / logoImg.height);
     const lw = logoImg.width * s, lh = logoImg.height * s;
-    for (const fx of spots) {
-      ctx.drawImage(logoImg, total * fx - lw / 2, height / 2 - lh / 2, lw, lh);
+    for (const { fx, fy } of spots) {
+      ctx.drawImage(logoImg, total * fx - lw / 2, height * fy - lh / 2, lw, lh);
     }
   }
 
@@ -558,105 +565,101 @@ export function setupGrandHallScreen(app, { mode = 'kleur', image = null, logoIm
       if (!cube && o.isMesh && /^Cube/.test((o.name || '').trim())) cube = o;
     });
   }
-  if (!welkom || !cube || !planeInfo || !planeInfo.plane) return false;
+  if (!welkom || !cube || !planeInfo || !planeInfo.plane) return { fail: 'welkom/cube/plane' };
 
   // Welkom-tekst weg
   const wparent = welkom.parent && /welkom/i.test(welkom.parent.name || '') ? welkom.parent : welkom;
   wparent.visible = false;
 
+  // De content staat al (vroeg, in de pilaren-fase) in de geclaimde holder.
+  // In plaats van het pilaarvlak te verplaatsen (transforms op instance-
+  // vlakken renderen onbetrouwbaar), krijgt de scherm-CUBE een eigen
+  // materiaal: materiaal-toewijzing op de cube rendert wél betrouwbaar.
+  //
+  // Het pilaarmateriaal zelf is onbruikbaar op de cube: de kadrering
+  // (crop/projection/rotatie-90/repeat) zit in de GECOMPILEERDE shader
+  // (defines) en is met uniform-wijzigingen niet te corrigeren. De Event
+  // Hall-schermmaterialen mappen hun texture wél 1-op-1 op het vlak (dat is
+  // getest: een hue-testbeeld verschijnt strak op de cube). Daarom: een
+  // ondiepe KOPIE van zo'n Event Hall-materiaal, met eigen laag/uniform-
+  // objecten en de geclaimde holder-texture als beeldbron.
   const plane = planeInfo.plane;
-  const planeMat = planeInfo.planeMat || firstMaterial(plane);
-  if (planeMat) { planeMat.side = 2; planeMat.needsUpdate = true; }
+  if (!planeInfo.holder) return { fail: 'holder' };
+  plane.visible = false;                 // het vlak zelf blijft in de pilaar; uit
+  plane.name = 'brand-logo-grandhall';   // marker: nooit herbouwen/hergebruiken
 
-  // maten van het middenscherm
-  const cb = worldBox(cube);
-  const screenW = Math.max(cb.size.x, cb.size.z);
-  const screenH = cb.size.y;
+  const ghTex = holderTexturesOf(planeInfo.holder)[0];
+  if (!ghTex) return { fail: 'ghTex' };
 
-  // NB: de holder-content is al vroeg in applyBranding geswapt (binnen de
-  // pilaren-lus). Spline cachet de GPU-textuur, dus dat moet in die fase.
+  // sjabloon: een Event Hall-schermmateriaal (texture-laag met vlak-mapping)
+  let template = null;
+  scene.traverse((o) => {
+    if (template || !o.isMesh || !o.material) return;
+    if (!/^Deel/.test((o.name || '').trim())) return;
+    const m = firstMaterial(o);
+    const ls = (m && m.layers && (m.layers.layers || m.layers)) || [];
+    if (ls.some((l) => (l.type || (l.data && l.data.type)) === 'texture')) template = m;
+  });
+  if (!template) return { fail: 'template' };
 
-  // Wereldbasis = oriëntatie van de "Welkom"-tekst (staat al plat op het
-  // scherm), genormaliseerd, gepositioneerd op het schermmidden.
-  welkom.updateWorldMatrix(true, false);
-  const base = welkom.matrixWorld.clone();
-  const be = base.elements;
-  for (let col = 0; col < 3; col++) {
-    const i = col * 4;
-    const len = Math.hypot(be[i], be[i + 1], be[i + 2]) || 1;
-    be[i] /= len; be[i + 1] /= len; be[i + 2] /= len;
+  // De cube krijgt via Spline's eigen data-kanaal (updateByOp + geometry-
+  // rebuild, zoals app.swapGeometry doet) een VERS materiaal, opgebouwd uit
+  // de laag-data van het geclaimde pilaarvlak — maar met de kadrering
+  // rechtgezet naar een 1-op-1 vlak-mapping (zoals de Event Hall-schermen).
+  // JS-niveau kopieën/toewijzingen delen namelijk gecompileerde bindingen;
+  // alleen dit data-kanaal levert een materiaal met eigen shader-defines.
+  if (!cube.data || typeof cube.updateByOp !== 'function' || !plane.data) return { fail: 'data-kanaal' };
+  const srcMatData = JSON.parse(JSON.stringify(plane.data.material));
+  for (const layer of srcMatData.layers || []) {
+    if (!layer.data || layer.data.type !== 'texture') continue;
+    layer.data.projection = 0;
+    layer.data.crop = false;
+    layer.data.axis = 'x';
+    if (layer.data.texture) {
+      layer.data.texture.repeat = [1, 1];
+      layer.data.texture.offset = [0, 0];
+      layer.data.texture.rotation = 0;
+    }
   }
-  be[12] = cb.center.x; be[13] = cb.center.y; be[14] = cb.center.z - 2.5;
-  base.multiply(base.clone().makeRotationZ(Math.PI / 2));
-  base.multiply(base.clone().makeRotationY(Math.PI));
-
-  // Lokale geometrie-maat van het vlak over ALLE drie assen — de geometrie
-  // kan in het XY- óf XZ-vlak liggen (één as is vrijwel nul: de normaal).
-  if (!plane.geometry.boundingBox) plane.geometry.computeBoundingBox();
-  const gb = plane.geometry.boundingBox;
-  const ext = [gb.max.x - gb.min.x, gb.max.y - gb.min.y, gb.max.z - gb.min.z];
-
-  // De twee grootste assen zijn de vlak-assen; bepaal per vlak-as of hij na
-  // de base-rotatie horizontaal of verticaal in de wereld ligt (via de
-  // wereld-Y-component van de bijbehorende basiskolom: klein = horizontaal).
-  const e0 = base.elements; // kolommen zijn genormaliseerd (rotaties behouden lengte)
-  const order = [0, 1, 2].sort((a, b) => ext[b] - ext[a]);
-  const [axisA, axisB] = order;           // de twee vlak-assen
-  const vertA = Math.abs(e0[axisA * 4 + 1]);
-  const vertB = Math.abs(e0[axisB * 4 + 1]);
-  const widthAxis = vertA <= vertB ? axisA : axisB;   // meest horizontale as
-  const heightAxis = widthAxis === axisA ? axisB : axisA;
-
-  const targetW = screenW * 0.965, targetH = screenH * 0.95;
-
-  // Native wereldmaat en originele scale van het vlak vastleggen (één keer;
-  // bij herbranding is het vlak al verplaatst en gebruiken we de bewaarde
-  // waarden). Empirisch bepaald met kleurmetingen: na de rotZ90-basis stuurt
-  // scale.y de gerenderde BREEDTE (t.o.v. de native hoogte H0) en scale.x de
-  // gerenderde HOOGTE (t.o.v. de native breedte W0).
-  if (!plane.userData) plane.userData = {};
-  if (!plane.userData.__nbcNative) {
-    const nb = worldBox(plane);
-    plane.userData.__nbcNative = {
-      W0: Math.max(nb.size.x, nb.size.z, 1e-6),
-      H0: Math.max(nb.size.y, 1e-6),
-      scale: { x: plane.scale.x, y: plane.scale.y, z: plane.scale.z },
-    };
+  const opCtx = { shared: app._sharedAssetsManager, scene };
+  try {
+    const l = { ...cube.data, material: srcMatData };
+    cube.updateByOp({ type: 0, path: [], props: { material: l.material } }, l, opCtx, false);
+    const l2 = { ...cube.data, geometry: { ...cube.data.geometry } };
+    cube.updateByOp({ type: 0, path: [], props: { geometry: l2.geometry } }, l2, opCtx, false);
+  } catch (e) {
+    return { fail: 'updateByOp: ' + e.message };
   }
-  const nat = plane.userData.__nbcNative;
 
-  // positie + rotatie via decompose van de (ongeschaalde) basis
-  plane.parent.updateWorldMatrix(true, false);
-  const local = plane.parent.matrixWorld.clone().invert().multiply(base);
-  // Empirisch gekalibreerd (groene-canvas metingen op de congres-scène):
-  // bij deze basis+rotatie levert 1 eenheid scale.x ≈ 5,2 wereld-eenheden
-  // hoogte en 1 eenheid scale.y ≈ 21,8 wereld-eenheden breedte.
-  const WORLD_PER_SCALE_X = 5.2;
-  const WORLD_PER_SCALE_Y = 21.8;
-  const applyTransform = () => {
-    local.decompose(plane.position, plane.quaternion, plane.scale);
-    plane.scale.set(targetH / WORLD_PER_SCALE_X, targetW / WORLD_PER_SCALE_Y, plane.scale.z);
-    plane.updateMatrix();
-    plane.updateWorldMatrix(true, false);
+  // Het verse materiaal decodeert zijn beeld uit de ingebedde bytes (het
+  // originele NBC-logo), niet uit de geswapte holder. Daarom wordt de
+  // texture van het nieuwe cube-materiaal in-place omgezet naar de holder-
+  // canvas (zelfde pixelmaat, dus de GPU accepteert de upload). Een paar
+  // seconden her-asserten, omdat de asynchrone decoder er overheen kan
+  // schrijven.
+  const content = planeInfo.holder.img;
+  const applyTex = () => {
+    const m = firstMaterial(cube);
+    const ls = (m && m.layers && (m.layers.layers || m.layers)) || [];
+    for (const layer of ls) {
+      const u = layer.uniforms || {};
+      const k = Object.keys(u).find((key) => /_texture$/.test(key));
+      if (!k || !u[k] || !u[k].value) continue;
+      const t = u[k].value;
+      if (t.image !== content) {
+        t.image = content;
+        if (t.source && 'data' in t.source) t.source.data = content;
+        t.needsUpdate = true;
+        if (t.source) t.source.needsUpdate = true;
+      }
+    }
     if (app.requestRender) app.requestRender();
   };
-  applyTransform();
-  // Spline's intro-animatie ("pop-in") schrijft tijdens de eerste seconden
-  // elke frame de scale uit het datamodel terug. Daarom dwingen we onze
-  // transform per frame af totdat de intro voorbij is (ruim genomen, want
-  // onder software-rendering duurt de intro veel langer).
-  if (plane.userData.__nbcGuard) cancelAnimationFrame(plane.userData.__nbcGuard);
-  const guardUntil = performance.now() + 30000;
-  const guard = () => {
-    applyTransform();
-    if (performance.now() < guardUntil) {
-      plane.userData.__nbcGuard = requestAnimationFrame(guard);
-    }
-  };
-  plane.userData.__nbcGuard = requestAnimationFrame(guard);
+  applyTex();
+  const iv = setInterval(applyTex, 400);
+  setTimeout(() => clearInterval(iv), 8000);
 
-  plane.name = 'brand-logo-grandhall';
-  return { planeW: targetW, planeH: targetH };
+  return { cube: true };
 }
 
 function holderTexturesOf(holder) {
@@ -700,57 +703,71 @@ function materialUsesTexture(material, tex) {
  *  LED-pilaren: volledig vullen met eigen (staand) beeld              *
  * ------------------------------------------------------------------ */
 
-/**
- * Schaalt alle pilaar-logovlakken op tot de volledige pilaarmaat, zodat een
- * geüpload (staand) beeld de hele pilaar aan 4 zijden vult.
- */
-export function fillPillarsWithImage(app, image, pilarenAssets) {
-  const scene = app._scene;
-  // Staand beeld componeren en daarna voorvervormen naar de EXACTE originele
-  // holdermaat (Spline weigert texture-uploads met andere afmetingen). De
-  // vlakken worden hieronder tot volledige pilaarhoogte geschaald (~1:5),
-  // waardoor de voorvervormde inhoud weer de juiste verhoudingen krijgt.
-  const tmp = coverCanvas(image, 512, 2560);
-  for (const a of pilarenAssets) {
-    const c = document.createElement('canvas');
-    c.width = a.width || 426; c.height = a.height || 191;
-    c.getContext('2d').drawImage(tmp, 0, 0, c.width, c.height);
-    swapHolderImage(a.holder, c);
-  }
+// Empirisch gekalibreerd (pixelmetingen op de congres-scène): de logovlakken
+// worden via hun hiddenMatrix + een geometry-rebuild op volledige pilaarmaat
+// gezet. hm[5] = hoogteschaal (≈10 wereld-eenheden per eenheid, doel 84,6),
+// hm[13] = verticale verschuiving (≈0,62 wereld per eenheid).
+const PILLAR_HM_SCALE = 8.55;
+const PILLAR_HM_SHIFT = -3.0;
 
-  let scaled = 0;
+/**
+ * Staand beeld voorvervormd + 90° CCW gedraaid in de holdermaat tekenen.
+ * Op het (herbouwde) pilaarvlak loopt canvas-x verticaal (x=0 = boven) en
+ * canvas-y horizontaal; het beeld wordt daarom gedraaid getekend. De cover-
+ * fit gebeurt op de echte pilaarverhouding (~7,2 × 84,6 wereld-eenheden).
+ */
+function pillarCanvas(image, w = 426, h = 191) {
+  const tall = coverCanvas(image, 384, Math.round(384 * (84.6 / 7.2)));
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const ctx = c.getContext('2d');
+  ctx.translate(0, h);
+  ctx.rotate(-Math.PI / 2);
+  // in het gedraaide stelsel: bron-x → canvas-y (breedte h), bron-y → canvas-x (breedte w)
+  ctx.drawImage(tall, 0, 0, h, w);
+  return c;
+}
+
+/**
+ * Vult alle LED-pilaren op alle 4 zijden met een geüpload (staand) beeld.
+ *
+ * BELANGRIJK (empirisch): de pilaren zijn Spline-instances. Directe three.js-
+ * transforms (scale/position/updateMatrix) op deze vlakken renderen NIET —
+ * de rendertransform is gebakken. Ook data.scale/position via updateByOp
+ * wordt genegeerd. Wat wél werkt: data.hiddenMatrix aanpassen en daarna een
+ * geometry-op sturen (zoals app.swapGeometry doet), waardoor Spline het
+ * render-item opnieuw opbouwt mét de nieuwe hiddenMatrix.
+ */
+export function fillPillarsWithImage(app, image, pilarenAssets, skipPlane = null) {
+  const scene = app._scene;
+  for (const a of pilarenAssets) {
+    swapHolderImage(a.holder, pillarCanvas(image, a.width || 426, a.height || 191));
+  }
+  const ctx = { shared: app._sharedAssetsManager, scene };
+  let n = 0;
   scene.traverse((group) => {
     if (!/NBC logo's pilaar/i.test(group.name || '')) return;
-    // pilaarmaat bepalen via het zustervlak "Pilaar 2" in de oudergroep
-    let pillar = null;
-    if (group.parent) pillar = (group.parent.children || []).find((s) => s.isMesh && /^Pilaar/.test(s.name || ''));
-    if (!pillar) return;
-    const pbox = worldBox(pillar);
-    for (const r of group.children || []) {
-      if (!r.isMesh || r.name === 'brand-logo-grandhall') continue;
-      const rbox = worldBox(r);
-      const curH = Math.max(rbox.size.y, 1e-6);
-      const curW = Math.max(rbox.size.x, rbox.size.z, 1e-6);
-      const targetH = pbox.size.y * 0.985;
-      const targetW = Math.max(pbox.size.x, pbox.size.z) * 1.0;
-      // lokale y-as is verticaal voor deze vlakken
-      r.scale.y *= targetH / curH;
-      r.scale.x *= targetW / curW;
-      r.updateMatrix();
-      // verticaal centreren op de pilaar
-      r.updateWorldMatrix(true, false);
-      const nbox = worldBox(r);
-      const dy = pbox.center.y - nbox.center.y;
-      if (Math.abs(dy) > 0.01 && r.parent) {
-        // wereld-dy omrekenen naar parent-ruimte (aanname: geen scheve parent-scaling)
-        r.position.y += dy / (r.parent.getWorldScale ? 1 : 1);
-        r.updateMatrix();
-      }
-      scaled++;
+    const planes = (group.children || []).filter((c) => c.isMesh);
+    for (const r of planes) {
+      // het Grand Hall-vlak niet herbouwen: zijn materiaal/holder is
+      // geclaimd voor het middenscherm (en het vlak zelf gaat op onzichtbaar)
+      if (r === skipPlane || r.name === 'brand-logo-grandhall') continue;
+      if (!r.data || typeof r.updateByOp !== 'function' || !Array.isArray(r.data.hiddenMatrix)) continue;
+      try {
+        const hm = [...r.data.hiddenMatrix];
+        hm[5] = PILLAR_HM_SCALE;
+        hm[13] = PILLAR_HM_SHIFT;
+        const l = { ...r.data, hiddenMatrix: hm };
+        r.updateByOp({ type: 0, path: [], props: { hiddenMatrix: l.hiddenMatrix } }, l, ctx, false);
+        // rebuild afdwingen via een geometry-op met ongewijzigde parameters
+        const l2 = { ...r.data, geometry: { ...r.data.geometry } };
+        r.updateByOp({ type: 0, path: [], props: { geometry: l2.geometry } }, l2, ctx, false);
+        n++;
+      } catch (e) { /* vlak overslaan; de rest gaat door */ }
     }
   });
   if (app.requestRender) app.requestRender();
-  return scaled;
+  return n;
 }
 
 /* ------------------------------------------------------------------ *
@@ -829,8 +846,12 @@ export async function applyBranding(app, config = {}) {
   //    die holder krijgt (bij zwart/eigen beeld) de Grand Hall-content, de rest
   //    het logo. Alles in deze lus, zodat de swaps zeker renderen.
   if (overrides.pilaren) {
-    result.pillarsFilled = fillPillarsWithImage(app, overrides.pilaren, pilarenAssets.filter((a) => a.holder !== ghHolder));
-    if (ghContent && ghHolder) swapHolderImage(ghHolder, ghContent); // in dezelfde fase
+    // zonder Grand Hall-gebruik mag óók de gh-groep herbouwd worden en krijgt
+    // de gh-holder gewoon het pilaarbeeld; mét Grand Hall blijft die groep
+    // intact (skipPlane) en krijgt de holder de Grand Hall-content
+    const fillAssets = wantGrandhall ? pilarenAssets.filter((a) => a.holder !== ghHolder) : pilarenAssets;
+    result.pillarsFilled = fillPillarsWithImage(app, overrides.pilaren, fillAssets, wantGrandhall ? (ghInfo && ghInfo.plane) : null);
+    if (wantGrandhall && ghContent && ghHolder) swapHolderImage(ghHolder, ghContent); // in dezelfde fase
   } else if (logoImg) {
     for (const a of pilarenAssets) {
       if (a.holder === ghHolder && ghContent) {

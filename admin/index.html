@@ -23,7 +23,14 @@
   input[type=color] { width: 52px; height: 34px; padding: 2px; border: 1px solid #cfd6d9; border-radius: 8px; background: #fff; }
   .colors { display: flex; gap: 14px; }
   .colors > div { flex: 1; }
-  input[type=file] { font-size: 12px; width: 100%; }
+  input[type=file] { font-size: 12px; flex: 1; min-width: 0; }
+  .filerow { display: flex; align-items: center; gap: 6px; }
+  .clearfile {
+    display: none; flex: 0 0 auto; width: 22px; height: 22px; border: 1px solid #cfd6d9;
+    border-radius: 999px; background: #fff; color: #a33; font: 700 13px/1 system-ui;
+    cursor: pointer; padding: 0;
+  }
+  .filerow.has-file .clearfile { display: inline-flex; align-items: center; justify-content: center; }
   .radios { display: flex; gap: 12px; flex-wrap: wrap; }
   label.inline { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 13px; margin: 6px 0 0; }
   label.switch { width: 100%; }
@@ -89,7 +96,7 @@
         <div><label for="c2" style="margin-top:0">Kleur 2</label><input type="color" id="c2" value="#1B2A7B"></div>
       </div>
       <label for="logo">Logo (png, liefst met transparantie)</label>
-      <input type="file" id="logo" accept="image/png,image/svg+xml,image/webp">
+      <span class="filerow"><input type="file" id="logo" accept="image/png,image/svg+xml,image/webp"><button type="button" class="clearfile" data-for="logo" title="Verwijderen" aria-label="Upload verwijderen">×</button></span>
       <p class="hint">Het logo komt op alle schermen, midden op het Grand Hall-scherm en in de header van de klantpagina.</p>
     </fieldset>
 
@@ -108,11 +115,11 @@
         <option value="custom">Eigen decor (upload hieronder)</option>
       </select>
       <label for="img-eventhall">Eigen decor / beeld (breed, loopt door over de hele wand)</label>
-      <input type="file" id="img-eventhall" accept="image/*">
+      <span class="filerow"><input type="file" id="img-eventhall" accept="image/*"><button type="button" class="clearfile" data-for="img-eventhall" title="Verwijderen" aria-label="Upload verwijderen">×</button></span>
       <label for="eh-logospots">Logo op de wand</label>
       <select id="eh-logospots" style="width:100%;padding:8px 10px;border:1px solid #cfd6d9;border-radius:8px;font-size:14px;">
-        <option value="2">2 plekken (kwart + driekwart)</option>
-        <option value="1">1 plek (midden)</option>
+        <option value="2">2 plekken (groot paneel + bol)</option>
+        <option value="1">1 plek (groot paneel)</option>
         <option value="0">Geen logo op de wand</option>
       </select>
       <p class="hint">Het beeld wordt als één geheel over de 4 schermdelen verdeeld, zodat het netjes doorloopt.</p>
@@ -125,18 +132,18 @@
         <label class="inline"><input type="radio" name="ghmode" value="zwart"> Zwart scherm</label>
       </div>
       <label for="img-grandhall">Eigen beeld middenscherm (16:9, optioneel)</label>
-      <input type="file" id="img-grandhall" accept="image/*">
+      <span class="filerow"><input type="file" id="img-grandhall" accept="image/*"><button type="button" class="clearfile" data-for="img-grandhall" title="Verwijderen" aria-label="Upload verwijderen">×</button></span>
       <p class="hint">Het logo komt gecentreerd op het middenscherm; de zijschermen volgen de huisstijlkleuren.</p>
     </fieldset>
 
     <fieldset>
       <legend>Eigen beeld per schermgroep (optioneel)</legend>
       <label for="img-pilaren" style="margin-top:0">LED-pilaren (staand beeld — vult alle 4 zijden volledig)</label>
-      <input type="file" id="img-pilaren" accept="image/*">
+      <span class="filerow"><input type="file" id="img-pilaren" accept="image/*"><button type="button" class="clearfile" data-for="img-pilaren" title="Verwijderen" aria-label="Upload verwijderen">×</button></span>
       <label for="img-ledwall">LED-wall entree (16:9)</label>
-      <input type="file" id="img-ledwall" accept="image/*">
+      <span class="filerow"><input type="file" id="img-ledwall" accept="image/*"><button type="button" class="clearfile" data-for="img-ledwall" title="Verwijderen" aria-label="Upload verwijderen">×</button></span>
       <label for="img-narrowcasting">Registratie-/narrowcastingschermen (16:9)</label>
-      <input type="file" id="img-narrowcasting" accept="image/*">
+      <span class="filerow"><input type="file" id="img-narrowcasting" accept="image/*"><button type="button" class="clearfile" data-for="img-narrowcasting" title="Verwijderen" aria-label="Upload verwijderen">×</button></span>
       <p class="hint">Uploads vullen het volledige element (cover). Zonder eigen beeld: kleurverloop + logo.</p>
     </fieldset>
 
@@ -155,7 +162,7 @@
 
 <script type="module">
 const $ = (id) => document.getElementById(id);
-const ADMIN_VERSION = 'v7';
+const ADMIN_VERSION = 'v8';
 
 // Fouten nooit stil laten vallen: toon ze als melding onderin
 function showError(msg) {
@@ -367,7 +374,32 @@ $('save').addEventListener('click', async () => {
   }
 });
 
+// verwijder-kruisjes bij uploads
+const roleForInput = (fid) => fid === 'logo' ? 'logo' : fid.replace('img-', '');
+function syncClearButtons() {
+  document.querySelectorAll('.filerow').forEach((row) => {
+    const input = row.querySelector('input[type=file]');
+    const role = roleForInput(input.id);
+    row.classList.toggle('has-file', !!(uploads[role] || (input.files && input.files.length)));
+  });
+}
+document.querySelectorAll('.clearfile').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const fid = btn.dataset.for;
+    const input = document.getElementById(fid);
+    input.value = '';
+    uploads[roleForInput(fid)] = null;
+    syncClearButtons();
+    schedulePreview();
+    toast('Upload verwijderd');
+  });
+});
+document.querySelectorAll('.filerow input[type=file]').forEach((input) => {
+  input.addEventListener('change', () => setTimeout(syncClearButtons, 50));
+});
+
 $('ver').textContent = ADMIN_VERSION;
+syncClearButtons();
 renderEvents();
 refreshPreview().catch((e) => showError('Voorbeeld laden mislukt: ' + e.message));
 </script>
