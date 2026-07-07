@@ -61,7 +61,7 @@
 <main>
   <aside>
     <h1>3D plattegrond voor sales</h1>
-    <p class="sub">Stel per event de branding samen — rechts zie je direct het resultaat. Sla het event op om de deel-links te bewaren en later opnieuw te bewerken.</p>
+    <p class="sub">Stel per event de branding samen — rechts zie je direct het resultaat. Sla het event op om de deel-links te bewaren en later opnieuw te bewerken. <span id="ver" style="color:#9aa4a8"></span></p>
 
     <fieldset>
       <legend>Event</legend>
@@ -155,6 +155,17 @@
 
 <script type="module">
 const $ = (id) => document.getElementById(id);
+const ADMIN_VERSION = 'v7';
+
+// Fouten nooit stil laten vallen: toon ze als melding onderin
+function showError(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = '⚠ ' + msg;
+  t.style.opacity = '1';
+  clearTimeout(t._h); t._h = setTimeout(() => (t.style.opacity = '0'), 8000);
+}
+window.addEventListener('error', (e) => showError('Fout: ' + (e.message || 'onbekend')));
+window.addEventListener('unhandledrejection', (e) => showError('Fout: ' + ((e.reason && e.reason.message) || e.reason || 'onbekend')));
 // projectbasis bepalen, robuust voor URL's met of zonder afsluitende slash
 // (bijv. …github.io/nbc3dmodel/admin, …/admin/ of …/admin/index.html)
 function projectBase() {
@@ -197,11 +208,17 @@ async function buildConfig() {
   const screens = {};
   for (const role of ['eventhall', 'grandhall', 'ledwall', 'narrowcasting', 'pilaren']) {
     const f = $('img-' + role).files[0];
-    if (f) uploads[role] = await fileToDataUri(f, role === 'eventhall' ? 2400 : 1600);
+    if (f) {
+      try { uploads[role] = await fileToDataUri(f, role === 'eventhall' ? 2400 : 1600); }
+      catch (e) { showError(`Afbeelding "${f.name}" kan niet worden gelezen (gebruik jpg/png/webp)`); }
+    }
     if (uploads[role]) screens[role] = uploads[role];
   }
   const logoFile = $('logo').files[0];
-  if (logoFile) uploads.logo = await fileToDataUri(logoFile, 800);
+  if (logoFile) {
+    try { uploads.logo = await fileToDataUri(logoFile, 800); }
+    catch (e) { showError(`Logo "${logoFile.name}" kan niet worden gelezen (gebruik png)`); }
+  }
   const scene = document.querySelector('input[name=scene]:checked').value;
   const logoSpots = Number($('eh-logospots').value);
   return {
@@ -236,21 +253,29 @@ function randomToken(len = 22) {
 }
 
 /* ---------- live preview ---------- */
+// De config gaat via sessionStorage naar het iframe (zelfde origin/tab):
+// met uploads erin wordt een hash-URL megabytes groot en weigeren browsers
+// de navigatie — dan lijkt de preview "niets te doen".
 let previewTimer = null;
 async function refreshPreview() {
   const cfg = await buildConfig();
-  $('frame').src = hashLink(cfg);
+  try { sessionStorage.setItem('nbc3d-preview', JSON.stringify(cfg)); }
+  catch (e) { showError('Voorbeeld-config te groot voor de browseropslag: ' + e.message); return; }
+  $('frame').src = VIEWER + '?p=' + Date.now() + '#preview';
 }
 function schedulePreview() {
   clearTimeout(previewTimer);
-  previewTimer = setTimeout(() => refreshPreview().catch(console.error), 900);
+  previewTimer = setTimeout(() => refreshPreview().catch((e) => showError('Voorbeeld verversen mislukt: ' + e.message)), 900);
 }
 document.querySelector('aside').addEventListener('change', schedulePreview);
 $('eventName').addEventListener('input', schedulePreview);
 
 /* ---------- opgeslagen events ---------- */
 const loadEvents = () => { try { return JSON.parse(localStorage.getItem(STORE_KEY)) || []; } catch { return []; } };
-const saveEvents = (list) => localStorage.setItem(STORE_KEY, JSON.stringify(list));
+const saveEvents = (list) => {
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(list)); }
+  catch (e) { showError('Opslaan in de browser lukt niet (opslag vol of privémodus): ' + e.message); }
+};
 let editingToken = null;
 
 function renderEvents() {
@@ -314,28 +339,37 @@ function loadIntoForm(ev) {
 }
 
 $('save').addEventListener('click', async () => {
-  const cfg = await buildConfig();
-  const list = loadEvents();
-  let token = editingToken;
-  const existing = token ? list.find((x) => x.token === token) : null;
-  if (existing) {
-    existing.config = cfg;
-    existing.name = cfg.eventName || existing.name;
-    existing.updatedAt = Date.now();
-  } else {
-    token = randomToken();
-    editingToken = token;
-    list.unshift({ token, name: cfg.eventName || '', config: cfg, updatedAt: Date.now() });
+  try {
+    const cfg = await buildConfig();
+    const list = loadEvents();
+    let token = editingToken;
+    const existing = token ? list.find((x) => x.token === token) : null;
+    if (existing) {
+      existing.config = cfg;
+      existing.name = cfg.eventName || existing.name;
+      existing.updatedAt = Date.now();
+    } else {
+      token = randomToken();
+      editingToken = token;
+      list.unshift({ token, name: cfg.eventName || '', config: cfg, updatedAt: Date.now() });
+    }
+    saveEvents(list);
+    renderEvents();
+    const link = hashLink(cfg);
+    if (link.length > 500000) {
+      toast('Opgeslagen. Let op: de deel-link is erg groot door de uploads — gebruik de vaste link + config-bestand.');
+    } else {
+      try { await navigator.clipboard.writeText(link); toast('Opgeslagen — deel-link staat op je klembord'); }
+      catch { toast('Opgeslagen — kopieer de deel-link via de lijst hieronder'); }
+    }
+  } catch (e) {
+    showError('Opslaan mislukt: ' + (e.message || e));
   }
-  saveEvents(list);
-  renderEvents();
-  const link = hashLink(cfg);
-  try { await navigator.clipboard.writeText(link); toast('Opgeslagen — deel-link staat op je klembord'); }
-  catch { toast('Opgeslagen'); }
 });
 
+$('ver').textContent = ADMIN_VERSION;
 renderEvents();
-refreshPreview().catch(console.error);
+refreshPreview().catch((e) => showError('Voorbeeld laden mislukt: ' + e.message));
 </script>
 </body>
 </html>

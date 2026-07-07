@@ -87,8 +87,16 @@ const badgeEl = document.getElementById('badge');
 const scenesEl = document.getElementById('scenes');
 const stage = document.getElementById('stage');
 
-/** Config laden: ?e=TOKEN → configs/TOKEN.json, of #c=<base64url json>. */
+/** Config laden: #preview (sessionStorage, voor de beheeromgeving),
+ *  ?e=TOKEN → configs/TOKEN.json, of #c=<base64url json>. */
 async function loadConfig() {
+  if (location.hash === '#preview') {
+    try {
+      const raw = sessionStorage.getItem('nbc3d-preview');
+      if (raw) return JSON.parse(raw);
+    } catch (e) { /* val terug op lege config */ }
+    return {};
+  }
   const params = new URLSearchParams(location.search);
   const token = params.get('e');
   if (token) {

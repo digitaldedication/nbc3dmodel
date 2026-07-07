@@ -32,6 +32,7 @@ try {
 
   await page.goto('http://127.0.0.1:8787/nbc3dmodel/admin/');
   await page.fill('#eventName', 'ACME Kickoff 2026');
+  await page.setInputFiles('#logo', 'scene-inspection/testlogo.png');
   await page.evaluate(() => { document.querySelector('input[name=scene][value=feest]').checked = true; });
   await page.evaluate(() => { document.getElementById('hall-grandhall').checked = false; });
   await page.evaluate(() => document.querySelector('aside').dispatchEvent(new Event('change')));
