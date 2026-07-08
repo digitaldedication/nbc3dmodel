@@ -162,7 +162,7 @@
 
 <script type="module">
 const $ = (id) => document.getElementById(id);
-const ADMIN_VERSION = 'v8';
+const ADMIN_VERSION = 'v9';
 
 // Fouten nooit stil laten vallen: toon ze als melding onderin
 function showError(msg) {
@@ -247,8 +247,15 @@ async function buildConfig() {
 
 function packConfig(cfg) {
   const json = JSON.stringify(cfg);
-  return btoa(String.fromCharCode(...new TextEncoder().encode(json)))
-    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const bytes = new TextEncoder().encode(json);
+  // in blokken omzetten: één grote spread geeft bij grote afbeeldingen
+  // "Maximum call stack size exceeded"
+  let bin = '';
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
 function hashLink(cfg) { return VIEWER + '#c=' + packConfig(cfg); }

@@ -388,11 +388,15 @@ export function applyEventhallDecor(app, { decor = {}, colors = {}, logoImg = nu
   const secondary = colors.secondary || primary;
   const type = decor.type || 'verloop';
   if (type === 'custom' && decor.image) {
-    // STRETCH-fit: de decors zijn orthografische renders van exact deze wand
-    // (gekalibreerd: mapping ≈ identiteit). Cover-fit sneed ±2% van de randen
-    // af waardoor de paneelranden verschoven en er zwarte balken op de
-    // panelen vielen.
-    ctx.drawImage(decor.image, 0, 0, decor.image.width, decor.image.height, 0, 0, total, height);
+    // STRETCH-fit met gekalibreerde correctie: de decors zijn orthografische
+    // renders van exact deze wand. Silhouet-registratie (XOR-fit op de
+    // paneelranden t.o.v. de originele textures) gaf een kleine affiene
+    // afwijking: x −0,06% verschoven, y ×1,015 −0,47%. Cover-fit sneed
+    // eerder ±2% af, wat zwarte balken op de panelen gaf.
+    const dx = -0.00059 * total;
+    const dy = -0.0047 * height;
+    ctx.drawImage(decor.image, 0, 0, decor.image.width, decor.image.height,
+      dx, dy, total, height * 1.015);
   } else if (type === 'zwart') {
     ctx.fillStyle = '#0a0a0a'; ctx.fillRect(0, 0, total, height);
   } else if (type === 'effen1' || type === 'effen2') {
@@ -423,17 +427,62 @@ export function applyEventhallDecor(app, { decor = {}, colors = {}, logoImg = nu
     }
   }
 
-  // 3. wand opdelen in de 4 delen (originele resolutie per deel)
+  // 3. wand opdelen in de 4 delen (originele resolutie per deel).
+  //    De originele textures zijn voorgerenderde 3D-beelden van de panelen
+  //    (mét schuine toppen, zijkanten en zwarte achtergrond). Daarom wordt
+  //    per deel:
+  //      a. de exacte slice getekend,
+  //      b. dáárachter een iets vergrote kopie (vult de smalle wiggen op de
+  //         schuine paneeltoppen en zijvlakjes die nét buiten de mapping
+  //         vallen — voorheen de zwarte randjes),
+  //      c. het geheel gemaskeerd op het silhouet van de originele texture,
+  //         zodat de achtergrond boven de panelen strak zwart blijft.
   let x = 0;
   parts.forEach((p, i) => {
+    const sw = p.width || widths[i];
+    const sh = p.height || height;
     const slice = document.createElement('canvas');
-    slice.width = p.width || widths[i];
-    slice.height = p.height || height;
-    slice.getContext('2d').drawImage(wall, x, 0, widths[i], height, 0, 0, slice.width, slice.height);
+    slice.width = sw; slice.height = sh;
+    const sctx = slice.getContext('2d');
+    sctx.drawImage(wall, x, 0, widths[i], height, 0, 0, sw, sh);
+    sctx.globalCompositeOperation = 'destination-over';
+    const mx = sw * 0.03, my = sh * 0.04;
+    sctx.drawImage(wall, x, 0, widths[i], height, -mx, -my, sw + 2 * mx, sh + 2 * my);
+    const orig = p.holder.__nbcOriginalImg || (p.holder.__nbcOriginalImg = p.holder.img);
+    const mask = silhouetteMask(orig, sw, sh);
+    if (mask) {
+      sctx.globalCompositeOperation = 'destination-in';
+      sctx.drawImage(mask, 0, 0, sw, sh);
+      sctx.globalCompositeOperation = 'destination-over';
+      sctx.fillStyle = '#000';
+      sctx.fillRect(0, 0, sw, sh);
+    }
+    sctx.globalCompositeOperation = 'source-over';
     swapHolderImage(p.holder, slice);
     x += widths[i];
   });
   return parts.length;
+}
+
+/** Alfamasker van de niet-zwarte (paneel)pixels van een texture. */
+function silhouetteMask(image, w, h) {
+  try {
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    const g = c.getContext('2d');
+    g.drawImage(image, 0, 0, w, h);
+    const im = g.getImageData(0, 0, w, h);
+    const d = im.data;
+    for (let i = 0; i < d.length; i += 4) {
+      const lum = d[i] + d[i + 1] + d[i + 2];
+      // zachte rand rond drempel ~ 75 (som van rgb)
+      d[i + 3] = Math.max(0, Math.min(255, (lum - 45) * 4));
+    }
+    g.putImageData(im, 0, 0);
+    return c;
+  } catch (e) {
+    return null; // bijv. cross-origin zonder CORS: dan zonder masker verder
+  }
 }
 
 /* ------------------------------------------------------------------ *
@@ -546,10 +595,12 @@ function buildGrandHallContent(app, { mode, image, logoImg, aspect = 16 / 9, hol
       tctx.drawImage(logoImg, (W - lw) / 2, (H - lh) / 2, lw, lh);
     }
   }
-  // 2. voorvervormen naar de exacte holdermaat
+  // 2. voorvervormen naar de exacte holdermaat; de scherpe origineel-resolutie
+  //    blijft eraan hangen voor de bytes-injectie op het middenscherm
   const content = document.createElement('canvas');
   content.width = holderW; content.height = holderH;
   content.getContext('2d').drawImage(tmp, 0, 0, holderW, holderH);
+  content.__nbcFull = tmp;
   return content;
 }
 
@@ -588,27 +639,18 @@ export function setupGrandHallScreen(app, { mode = 'kleur', image = null, logoIm
   plane.visible = false;                 // het vlak zelf blijft in de pilaar; uit
   plane.name = 'brand-logo-grandhall';   // marker: nooit herbouwen/hergebruiken
 
-  const ghTex = holderTexturesOf(planeInfo.holder)[0];
-  if (!ghTex) return { fail: 'ghTex' };
-
-  // sjabloon: een Event Hall-schermmateriaal (texture-laag met vlak-mapping)
-  let template = null;
-  scene.traverse((o) => {
-    if (template || !o.isMesh || !o.material) return;
-    if (!/^Deel/.test((o.name || '').trim())) return;
-    const m = firstMaterial(o);
-    const ls = (m && m.layers && (m.layers.layers || m.layers)) || [];
-    if (ls.some((l) => (l.type || (l.data && l.data.type)) === 'texture')) template = m;
-  });
-  if (!template) return { fail: 'template' };
-
   // De cube krijgt via Spline's eigen data-kanaal (updateByOp + geometry-
   // rebuild, zoals app.swapGeometry doet) een VERS materiaal, opgebouwd uit
-  // de laag-data van het geclaimde pilaarvlak — maar met de kadrering
-  // rechtgezet naar een 1-op-1 vlak-mapping (zoals de Event Hall-schermen).
-  // JS-niveau kopieën/toewijzingen delen namelijk gecompileerde bindingen;
-  // alleen dit data-kanaal levert een materiaal met eigen shader-defines.
+  // de laag-data van het geclaimde pilaarvlak — met de kadrering rechtgezet
+  // naar een 1-op-1 vlak-mapping (zoals de Event Hall-schermen) en de
+  // Grand Hall-content als PNG-bytes op volledige resolutie. JS-niveau
+  // kopieën/toewijzingen delen namelijk gecompileerde bindingen; alleen dit
+  // data-kanaal levert een materiaal met eigen shader-defines en beeld.
   if (!cube.data || typeof cube.updateByOp !== 'function' || !plane.data) return { fail: 'data-kanaal' };
+  const holderImg = planeInfo.holder.img;
+  const full = (holderImg && holderImg.__nbcFull) || holderImg;
+  if (!full) return { fail: 'content' };
+  const bytes = canvasToPngBytes(full);
   const srcMatData = JSON.parse(JSON.stringify(plane.data.material));
   for (const layer of srcMatData.layers || []) {
     if (!layer.data || layer.data.type !== 'texture') continue;
@@ -619,6 +661,7 @@ export function setupGrandHallScreen(app, { mode = 'kleur', image = null, logoIm
       layer.data.texture.repeat = [1, 1];
       layer.data.texture.offset = [0, 0];
       layer.data.texture.rotation = 0;
+      layer.data.texture.image = { data: bytes, name: 'nbc-grandhall.png' };
     }
   }
   const opCtx = { shared: app._sharedAssetsManager, scene };
@@ -630,34 +673,6 @@ export function setupGrandHallScreen(app, { mode = 'kleur', image = null, logoIm
   } catch (e) {
     return { fail: 'updateByOp: ' + e.message };
   }
-
-  // Het verse materiaal decodeert zijn beeld uit de ingebedde bytes (het
-  // originele NBC-logo), niet uit de geswapte holder. Daarom wordt de
-  // texture van het nieuwe cube-materiaal in-place omgezet naar de holder-
-  // canvas (zelfde pixelmaat, dus de GPU accepteert de upload). Een paar
-  // seconden her-asserten, omdat de asynchrone decoder er overheen kan
-  // schrijven.
-  const content = planeInfo.holder.img;
-  const applyTex = () => {
-    const m = firstMaterial(cube);
-    const ls = (m && m.layers && (m.layers.layers || m.layers)) || [];
-    for (const layer of ls) {
-      const u = layer.uniforms || {};
-      const k = Object.keys(u).find((key) => /_texture$/.test(key));
-      if (!k || !u[k] || !u[k].value) continue;
-      const t = u[k].value;
-      if (t.image !== content) {
-        t.image = content;
-        if (t.source && 'data' in t.source) t.source.data = content;
-        t.needsUpdate = true;
-        if (t.source) t.source.needsUpdate = true;
-      }
-    }
-    if (app.requestRender) app.requestRender();
-  };
-  applyTex();
-  const iv = setInterval(applyTex, 400);
-  setTimeout(() => clearInterval(iv), 8000);
 
   return { cube: true };
 }
@@ -703,69 +718,170 @@ function materialUsesTexture(material, tex) {
  *  LED-pilaren: volledig vullen met eigen (staand) beeld              *
  * ------------------------------------------------------------------ */
 
-// Empirisch gekalibreerd (pixelmetingen op de congres-scène): de logovlakken
-// worden via hun hiddenMatrix + een geometry-rebuild op volledige pilaarmaat
-// gezet. hm[5] = hoogteschaal (≈10 wereld-eenheden per eenheid, doel 84,6),
-// hm[13] = verticale verschuiving (≈0,62 wereld per eenheid).
-const PILLAR_HM_SCALE = 8.55;
-const PILLAR_HM_SHIFT = -3.0;
+// Empirisch gekalibreerde relatie tussen hiddenMatrix-waarden en wereld-
+// eenheden (pixelmetingen op de congres-scène, geldig voor alle pilaar-
+// groepen omdat hun ketens identiek geschaald zijn):
+//   herbouwde hoogte  ≈ 10,0·hm[5] − 0,75
+//   herbouwd centrum  ≈ natiefBandCentrum + 16,5 + 0,59·(hm[5]−1) + 0,617·hm[13]
+const PILLAR_H_PER_S = 10.0;
+const PILLAR_H_BIAS = -0.75;
+const PILLAR_C_BASE = 16.5;
+const PILLAR_C_PER_S = 0.59;
+const PILLAR_C_PER_T = 0.617;
+// pilaarvlak-breedte in wereld-eenheden (voor de beeldverhouding van de content)
+const PILLAR_FACE_W = 7.2;
 
-/**
- * Staand beeld voorvervormd + 90° CCW gedraaid in de holdermaat tekenen.
- * Op het (herbouwde) pilaarvlak loopt canvas-x verticaal (x=0 = boven) en
- * canvas-y horizontaal; het beeld wordt daarom gedraaid getekend. De cover-
- * fit gebeurt op de echte pilaarverhouding (~7,2 × 84,6 wereld-eenheden).
- */
-function pillarCanvas(image, w = 426, h = 191) {
-  const tall = coverCanvas(image, 384, Math.round(384 * (84.6 / 7.2)));
+/** Canvas → PNG-bytes (Uint8Array), voor injectie in Spline-materiaaldata. */
+function canvasToPngBytes(canvas) {
+  const b64 = canvas.toDataURL('image/png').split(',')[1];
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+/** Gemiddelde kleur van een afbeelding (voor de hoek-tint van de pilaren). */
+function averageImageColor(image) {
   const c = document.createElement('canvas');
-  c.width = w; c.height = h;
-  const ctx = c.getContext('2d');
-  ctx.translate(0, h);
-  ctx.rotate(-Math.PI / 2);
-  // in het gedraaide stelsel: bron-x → canvas-y (breedte h), bron-y → canvas-x (breedte w)
-  ctx.drawImage(tall, 0, 0, h, w);
-  return c;
+  c.width = 8; c.height = 32;
+  const g = c.getContext('2d');
+  g.drawImage(image, 0, 0, 8, 32);
+  const d = g.getImageData(0, 0, 8, 32).data;
+  let r = 0, gr = 0, b = 0, n = 0;
+  for (let i = 0; i < d.length; i += 4) { r += d[i]; gr += d[i + 1]; b += d[i + 2]; n++; }
+  return [r / n / 255, gr / n / 255, b / n / 255];
+}
+
+/** Wacht tot de intro-animatie is uitgewerkt (pilaarmaat stabiel). */
+function waitForSceneRest(app, probeMesh, { timeout = 15000, interval = 250 } = {}) {
+  return new Promise((resolve) => {
+    const t0 = performance.now();
+    let last = -1;
+    const tick = () => {
+      let h = 0;
+      try { h = worldBox(probeMesh).size.y; } catch (e) { /* meshes nog niet klaar */ }
+      if ((h > 1 && Math.abs(h - last) < 1e-3) || performance.now() - t0 > timeout) return resolve();
+      last = h;
+      setTimeout(tick, interval);
+    };
+    tick();
+  });
 }
 
 /**
- * Vult alle LED-pilaren op alle 4 zijden met een geüpload (staand) beeld.
+ * Vult alle LED-pilaren op alle 4 zijden met een geüpload (staand) beeld —
+ * exact passend op elke pilaar, ook waar de vloer lager ligt (entree) of de
+ * pilaar hoger doorloopt (het prototype naast de Grand Hall).
  *
  * BELANGRIJK (empirisch): de pilaren zijn Spline-instances. Directe three.js-
- * transforms (scale/position/updateMatrix) op deze vlakken renderen NIET —
- * de rendertransform is gebakken. Ook data.scale/position via updateByOp
- * wordt genegeerd. Wat wél werkt: data.hiddenMatrix aanpassen en daarna een
- * geometry-op sturen (zoals app.swapGeometry doet), waardoor Spline het
- * render-item opnieuw opbouwt mét de nieuwe hiddenMatrix.
+ * transforms renderen NIET (gebakken rendertransform); ook data.scale/position
+ * via updateByOp wordt genegeerd. Wat wél werkt: data.hiddenMatrix aanpassen
+ * plus een geometry-op (zoals app.swapGeometry doet) — dan herbouwt Spline
+ * het render-item. Via een materiaal-op met eigen PNG-bytes krijgt elk vlak
+ * bovendien een eigen scherpe texture (los van de 426×191-holders) met een
+ * 1-op-1 vlak-mapping.
+ *
+ * De maten worden ná de intro-animatie gemeten (tijdens de intro kloppen
+ * wereldmaten niet); tot die tijd tonen de pilaren hun kleurverloop.
  */
-export function fillPillarsWithImage(app, image, pilarenAssets, skipPlane = null) {
+export async function fillPillarsWithImage(app, image, skipPlane = null) {
   const scene = app._scene;
-  for (const a of pilarenAssets) {
-    swapHolderImage(a.holder, pillarCanvas(image, a.width || 426, a.height || 191));
-  }
-  const ctx = { shared: app._sharedAssetsManager, scene };
-  let n = 0;
+  const opCtx = { shared: app._sharedAssetsManager, scene };
+
+  // groepen + bijbehorende pilaar verzamelen
+  const groups = [];
   scene.traverse((group) => {
     if (!/NBC logo's pilaar/i.test(group.name || '')) return;
+    const pillar = group.parent && (group.parent.children || []).find((s) => s.isMesh && /^Pilaar/.test(s.name || ''));
     const planes = (group.children || []).filter((c) => c.isMesh);
+    if (pillar && planes.length) groups.push({ group, pillar, planes });
+  });
+  if (!groups.length) return 0;
+
+  await waitForSceneRest(app, groups[0].pillar);
+
+  // content-canvas per doelhoogte (cover-fit op de echte pilaarverhouding)
+  const contentCache = new Map();
+  const contentBytesFor = (targetH) => {
+    const key = Math.round(targetH);
+    if (contentCache.has(key)) return contentCache.get(key);
+    const w = 256;
+    const h = Math.min(4096, Math.round(w * (targetH / PILLAR_FACE_W)));
+    const bytes = canvasToPngBytes(coverCanvas(image, w, h));
+    contentCache.set(key, bytes);
+    return bytes;
+  };
+
+  let n = 0;
+  for (const { pillar, planes } of groups) {
+    const pbox = worldBox(pillar);
+    if (pbox.size.y < 1) continue;
+    // zichtbare onderkant: pilaren op de binnenplaats steken ~45 onder de
+    // vloer (y=0); pilaren bij de entree en het hoge prototype staan met hun
+    // voet óp een (lagere) vloer en zijn volledig zichtbaar.
+    const bottom = pbox.min.y <= -44 ? 0 : pbox.min.y;
+    const top = pbox.max.y;
+    const targetH = (top - 0.15) - (bottom + 0.25);
+    const targetC = (top - 0.15 + bottom + 0.25) / 2;
+    const s = (targetH - PILLAR_H_BIAS) / PILLAR_H_PER_S;
+    const bytes = contentBytesFor(targetH);
+
     for (const r of planes) {
-      // het Grand Hall-vlak niet herbouwen: zijn materiaal/holder is
-      // geclaimd voor het middenscherm (en het vlak zelf gaat op onzichtbaar)
       if (r === skipPlane || r.name === 'brand-logo-grandhall') continue;
       if (!r.data || typeof r.updateByOp !== 'function' || !Array.isArray(r.data.hiddenMatrix)) continue;
       try {
+        const nativeC = worldBox(r).center.y;
+        const t = (targetC - nativeC - PILLAR_C_BASE - PILLAR_C_PER_S * (s - 1)) / PILLAR_C_PER_T;
         const hm = [...r.data.hiddenMatrix];
-        hm[5] = PILLAR_HM_SCALE;
-        hm[13] = PILLAR_HM_SHIFT;
+        hm[5] = s;
+        hm[13] = t;
         const l = { ...r.data, hiddenMatrix: hm };
-        r.updateByOp({ type: 0, path: [], props: { hiddenMatrix: l.hiddenMatrix } }, l, ctx, false);
+        r.updateByOp({ type: 0, path: [], props: { hiddenMatrix: l.hiddenMatrix } }, l, opCtx, false);
+        // eigen materiaal met scherpe PNG-bytes en 1-op-1 vlak-mapping
+        const matData = JSON.parse(JSON.stringify(r.data.material));
+        for (const layer of matData.layers || []) {
+          if (!layer.data || layer.data.type !== 'texture') continue;
+          layer.data.projection = 0;
+          layer.data.crop = false;
+          layer.data.axis = 'x';
+          if (layer.data.texture) {
+            layer.data.texture.repeat = [1, 1];
+            layer.data.texture.offset = [0, 0];
+            layer.data.texture.rotation = 0;
+            layer.data.texture.image = { data: bytes, name: 'nbc-brand-pilaar.png' };
+          }
+        }
+        const lm = { ...r.data, material: matData };
+        r.updateByOp({ type: 0, path: [], props: { material: lm.material } }, lm, opCtx, false);
         // rebuild afdwingen via een geometry-op met ongewijzigde parameters
         const l2 = { ...r.data, geometry: { ...r.data.geometry } };
-        r.updateByOp({ type: 0, path: [], props: { geometry: l2.geometry } }, l2, ctx, false);
+        r.updateByOp({ type: 0, path: [], props: { geometry: l2.geometry } }, l2, opCtx, false);
         n++;
       } catch (e) { /* vlak overslaan; de rest gaat door */ }
     }
-  });
+  }
+
+  // hoek-tint: de afgeronde hoeken van de pilaar (het kleurverloop) blijven
+  // tussen de vlakken door zichtbaar; kleur ze naar de gemiddelde beeldkleur
+  // zodat er geen felle verloopstreep meer langs de hoeken loopt
+  const avg = averageImageColor(image);
+  for (const { pillar } of groups) {
+    const mats = Array.isArray(pillar.material) ? pillar.material : [pillar.material];
+    for (const m of mats) {
+      if (!m) continue;
+      const layerList = (m.layers && (m.layers.layers || m.layers)) || [];
+      for (const layer of layerList) {
+        const u = layer.uniforms || {};
+        for (const key of Object.keys(u)) {
+          if (!/_colors$/.test(key) || !Array.isArray(u[key].value)) continue;
+          for (const stop of u[key].value) {
+            if (stop && typeof stop.x === 'number') { stop.x = avg[0]; stop.y = avg[1]; stop.z = avg[2]; }
+          }
+        }
+      }
+    }
+  }
+
   if (app.requestRender) app.requestRender();
   return n;
 }
@@ -846,11 +962,15 @@ export async function applyBranding(app, config = {}) {
   //    die holder krijgt (bij zwart/eigen beeld) de Grand Hall-content, de rest
   //    het logo. Alles in deze lus, zodat de swaps zeker renderen.
   if (overrides.pilaren) {
-    // zonder Grand Hall-gebruik mag óók de gh-groep herbouwd worden en krijgt
-    // de gh-holder gewoon het pilaarbeeld; mét Grand Hall blijft die groep
-    // intact (skipPlane) en krijgt de holder de Grand Hall-content
-    const fillAssets = wantGrandhall ? pilarenAssets.filter((a) => a.holder !== ghHolder) : pilarenAssets;
-    result.pillarsFilled = fillPillarsWithImage(app, overrides.pilaren, fillAssets, wantGrandhall ? (ghInfo && ghInfo.plane) : null);
+    // de vlakken krijgen eigen materialen met eigen (scherpe) textures;
+    // de pilaren-holders blijven ongemoeid (de kleine logo-blokjes op de
+    // vloer houden zo hun originele beeld). Het Grand Hall-vlak wordt
+    // overgeslagen; zijn holder krijgt de Grand Hall-content.
+    // niet awaiten: de vlakken worden pas ná de intro-animatie gemeten en
+    // gezet; de rest van de branding hoeft daar niet op te wachten
+    fillPillarsWithImage(app, overrides.pilaren, wantGrandhall ? (ghInfo && ghInfo.plane) : null)
+      .then((count) => { result.pillarsFilled = count; })
+      .catch(() => {});
     if (wantGrandhall && ghContent && ghHolder) swapHolderImage(ghHolder, ghContent); // in dezelfde fase
   } else if (logoImg) {
     for (const a of pilarenAssets) {

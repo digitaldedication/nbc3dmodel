@@ -44,11 +44,23 @@ try {
         })) : null,
       }));
     };
-    const m = Array.isArray(ehMesh.material) ? ehMesh.material[0] : ehMesh.material;
-    const own = Object.keys(m);
-    const proto = [];
-    for (let o = Object.getPrototypeOf(m); o && o !== Object.prototype; o = Object.getPrototypeOf(o)) proto.push(...Object.getOwnPropertyNames(o));
-    return { own, proto: [...new Set(proto)].slice(0, 60), hasUniforms: !!m.uniforms, uniformKeys: m.uniforms ? Object.keys(m.uniforms).filter((k) => /^f\d/.test(k)) : null, allCount: m.uniforms ? Object.keys(m.uniforms).length : 0, type: m.type, ctor: m.constructor && m.constructor.name };
+    const tl = (ghInfo.plane.data.material.layers || []).find((x) => x.data && x.data.type === 'texture');
+    const tex = tl && tl.data && tl.data.texture;
+    const img = tex && tex.image;
+    const describe = (v) => {
+      if (v == null) return String(v);
+      if (typeof v !== 'object') return typeof v + ':' + String(v).slice(0, 30);
+      if (ArrayBuffer.isView(v)) return v.constructor.name + '(' + v.length + ')';
+      const ks = Object.keys(v);
+      if (ks.length > 20) return 'object{' + ks.length + ' numerieke keys?} first=' + ks.slice(0,3);
+      return 'object{' + ks.join(',') + '}';
+    };
+    return {
+      texKeys: tex ? Object.keys(tex) : null,
+      imageDesc: describe(img),
+      imageSub: img && typeof img === 'object' && !ArrayBuffer.isView(img)
+        ? Object.fromEntries(Object.keys(img).slice(0, 8).map((k) => [k, describe(img[k])])) : null,
+    };
   });
   console.log(JSON.stringify(rep, null, 1));
 } finally {
