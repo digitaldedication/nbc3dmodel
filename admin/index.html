@@ -86,7 +86,7 @@
       <label>Ruimtes in gebruik</label>
       <label class="inline switch"><input type="checkbox" id="hall-eventhall" checked> Event Hall-opstelling tonen</label>
       <label class="inline switch"><input type="checkbox" id="hall-grandhall" checked> Grand Hall-opstelling tonen</label>
-      <label class="inline switch" style="margin-top:10px"><input type="checkbox" id="allowSwitch" checked> Klant mag tussen opstellingen wisselen</label>
+      <label class="inline switch" style="margin-top:10px"><input type="checkbox" id="allowSwitch"> Klant mag tussen opstellingen wisselen</label>
     </fieldset>
 
     <fieldset>
@@ -107,15 +107,20 @@
         <option value="verloop">Kleurverloop (kleur 1 → kleur 2)</option>
         <option value="effen1">Effen — kleur 1</option>
         <option value="effen2">Effen — kleur 2</option>
-        <option value="zwart">Zwart</option>
         <option value="preset:blauw">Decor — blauw</option>
         <option value="preset:blauw-glas">Decor — glas met blauwe randen</option>
         <option value="preset:wit">Decor — wit</option>
         <option value="preset:geel">Decor — geel</option>
+        <option value="preset:boeken">Decor — boeken</option>
+        <option value="preset:wit-architectuur">Decor — witte architectuur</option>
+        <option value="preset:blauw-goud">Decor — blauw met goud</option>
+        <option value="preset:rood">Decor — rood</option>
         <option value="custom">Eigen decor (upload hieronder)</option>
       </select>
       <label for="img-eventhall">Eigen decor / beeld (breed, loopt door over de hele wand)</label>
       <span class="filerow"><input type="file" id="img-eventhall" accept="image/*"><button type="button" class="clearfile" data-for="img-eventhall" title="Verwijderen" aria-label="Upload verwijderen">×</button></span>
+      <label for="logo-eventhall">Eigen logo voor deze wand (anders: het gewone logo)</label>
+      <span class="filerow"><input type="file" id="logo-eventhall" accept="image/png,image/svg+xml,image/webp"><button type="button" class="clearfile" data-for="logo-eventhall" title="Verwijderen" aria-label="Upload verwijderen">×</button></span>
       <label for="eh-logospots">Logo op de wand</label>
       <select id="eh-logospots" style="width:100%;padding:8px 10px;border:1px solid #cfd6d9;border-radius:8px;font-size:14px;">
         <option value="2">2 plekken (groot paneel + bol)</option>
@@ -133,7 +138,20 @@
       </div>
       <label for="img-grandhall">Eigen beeld middenscherm (16:9, optioneel)</label>
       <span class="filerow"><input type="file" id="img-grandhall" accept="image/*"><button type="button" class="clearfile" data-for="img-grandhall" title="Verwijderen" aria-label="Upload verwijderen">×</button></span>
-      <p class="hint">Het logo komt gecentreerd op het middenscherm; de zijschermen volgen de huisstijlkleuren.</p>
+      <label for="logo-grandhall">Eigen logo voor het middenscherm (anders: het gewone logo)</label>
+      <span class="filerow"><input type="file" id="logo-grandhall" accept="image/png,image/svg+xml,image/webp"><button type="button" class="clearfile" data-for="logo-grandhall" title="Verwijderen" aria-label="Upload verwijderen">×</button></span>
+      <label class="inline switch" style="margin-top:10px"><input type="checkbox" id="gh-eigen-kleuren"> Eigen kleuren voor het Grand Hall-decor</label>
+      <div id="gh-kleuren-row" class="colors" style="display:none">
+        <div>
+          <label for="gh-kleur1">GH kleur 1</label>
+          <input type="color" id="gh-kleur1" value="#009684">
+        </div>
+        <div>
+          <label for="gh-kleur2">GH kleur 2</label>
+          <input type="color" id="gh-kleur2" value="#DD9D40">
+        </div>
+      </div>
+      <p class="hint">Het logo komt gecentreerd op het middenscherm; de zijschermen volgen de huisstijlkleuren — of de eigen Grand Hall-kleuren hierboven (middenscherm-verloop + de 2 wanden ernaast).</p>
     </fieldset>
 
     <fieldset>
@@ -175,7 +193,19 @@
 
 <script type="module">
 const $ = (id) => document.getElementById(id);
-const ADMIN_VERSION = 'v15';
+const ADMIN_VERSION = 'v17';
+
+// Informatiepunten die standaard UIT staan bij een nieuw event
+// (splineName-sleutels uit src/tooltip-content.js).
+const DEFAULT_HIDDEN_TOOLTIPS = new Set([
+  'tooltip-grand-hall-stoelen-in-de-zaal',      // Allerlei opstellingen mogelijk
+  'tooltip-grand-hall-podium',                  // Vast podium
+  'tooltip-grand-hall-ruimte-op-te-splitsen',   // Op te splitsen (Grand Hall)
+  'tooltip-hospitality1-veel-daglicht-entree',  // Veel daglicht
+  'tooltip-hospitality2-vaste-bar',             // Vaste bar
+  'tooltip-eventhall-stoelen-in-de-zaal',       // Intieme setting
+  'tooltip-eventhall-scheidingswand',           // Op te splitsen (Event Hall)
+]);
 
 // Fouten nooit stil laten vallen: toon ze als melding onderin
 function showError(msg) {
@@ -222,7 +252,10 @@ function fileToDataUri(file, maxW = 1600) {
 }
 
 // geüploade bestanden onthouden (ook na bewerken van een opgeslagen event)
-const uploads = { logo: null, eventhall: null, grandhall: null, ledwall: null, narrowcasting: null, pilaren: null };
+const uploads = {
+  logo: null, eventhall: null, grandhall: null, ledwall: null, narrowcasting: null,
+  pilaren: null, logoEventhall: null, logoGrandhall: null,
+};
 
 async function buildConfig() {
   const screens = {};
@@ -239,6 +272,14 @@ async function buildConfig() {
   if (pilarenFile) {
     try { uploads.pilaren = await fileToDataUri(pilarenFile, 800); }
     catch (e) { showError(`Logo "${pilarenFile.name}" kan niet worden gelezen (gebruik png)`); }
+  }
+  // apart logo per scherm (Event Hall-wand / Grand Hall-middenscherm)
+  for (const [fid, key] of [['logo-eventhall', 'logoEventhall'], ['logo-grandhall', 'logoGrandhall']]) {
+    const f = $(fid).files[0];
+    if (f) {
+      try { uploads[key] = await fileToDataUri(f, 800); }
+      catch (e) { showError(`Logo "${f.name}" kan niet worden gelezen (gebruik png)`); }
+    }
   }
   const logoFile = $('logo').files[0];
   if (logoFile) {
@@ -261,8 +302,15 @@ async function buildConfig() {
       type: uploads.eventhall ? 'custom' : $('eh-decor').value,
       logoSpots: logoSpots || 1,
       logo: logoSpots > 0,
+      logoImage: uploads.logoEventhall || undefined,
     },
-    grandhall: { mode: document.querySelector('input[name=ghmode]:checked').value },
+    grandhall: {
+      mode: document.querySelector('input[name=ghmode]:checked').value,
+      colors: $('gh-eigen-kleuren').checked
+        ? { primary: $('gh-kleur1').value, secondary: $('gh-kleur2').value }
+        : undefined,
+      logoImage: uploads.logoGrandhall || undefined,
+    },
     scene,
     scenes: $('allowSwitch').checked ? undefined : [scene],
     halls: { eventhall: $('hall-eventhall').checked, grandhall: $('hall-grandhall').checked },
@@ -307,6 +355,12 @@ function schedulePreview() {
 }
 document.querySelector('aside').addEventListener('change', schedulePreview);
 $('eventName').addEventListener('input', schedulePreview);
+
+/* eigen Grand Hall-kleuren: pickers alleen tonen als de optie aanstaat */
+function syncGhKleuren() {
+  $('gh-kleuren-row').style.display = $('gh-eigen-kleuren').checked ? 'flex' : 'none';
+}
+$('gh-eigen-kleuren').addEventListener('change', syncGhKleuren);
 
 /* ---------- opgeslagen events ---------- */
 const loadEvents = () => { try { return JSON.parse(localStorage.getItem(STORE_KEY)) || []; } catch { return []; } };
@@ -362,10 +416,19 @@ function loadIntoForm(ev) {
   $('hall-grandhall').checked = !c.halls || c.halls.grandhall !== false;
   $('allowSwitch').checked = !(c.scenes && c.scenes.length === 1);
   const eh = c.eventhall || {};
+  // 'zwart' bestaat niet meer als decoroptie; oude events vallen terug op verloop
   $('eh-decor').value = eh.type && eh.type !== 'custom' ? eh.type : 'verloop';
+  if (!$('eh-decor').value) $('eh-decor').value = 'verloop';
   $('eh-logospots').value = eh.logo === false ? '0' : String(eh.logoSpots || 2);
   const ghm = (c.grandhall && c.grandhall.mode) || 'kleur';
   document.querySelector(`input[name=ghmode][value=${ghm}]`).checked = true;
+  const ghc = (c.grandhall && c.grandhall.colors) || null;
+  $('gh-eigen-kleuren').checked = !!(ghc && ghc.primary);
+  if (ghc && ghc.primary) {
+    $('gh-kleur1').value = ghc.primary;
+    $('gh-kleur2').value = ghc.secondary || ghc.primary;
+  }
+  syncGhKleuren();
   uploads.logo = c.logo || null;
   for (const role of ['eventhall', 'grandhall', 'ledwall', 'narrowcasting']) {
     uploads[role] = (c.screens && c.screens[role]) || null;
@@ -376,6 +439,10 @@ function loadIntoForm(ev) {
   uploads.pilaren = c.pillarLogo || null;
   $('img-pilaren').value = '';
   $('pilaren-pos').value = c.pillarLogoPos || 'midden';
+  uploads.logoEventhall = (c.eventhall && c.eventhall.logoImage) || null;
+  uploads.logoGrandhall = (c.grandhall && c.grandhall.logoImage) || null;
+  $('logo-eventhall').value = '';
+  $('logo-grandhall').value = '';
   const hiddenSet = new Set(c.hiddenTooltips || []);
   for (const cb of document.querySelectorAll('#tooltip-toggles input[type=checkbox]')) {
     cb.checked = !hiddenSet.has(cb.dataset.key);
@@ -415,7 +482,11 @@ $('save').addEventListener('click', async () => {
 });
 
 // verwijder-kruisjes bij uploads
-const roleForInput = (fid) => fid === 'logo' ? 'logo' : fid.replace('img-', '');
+const roleForInput = (fid) =>
+  fid === 'logo' ? 'logo'
+  : fid === 'logo-eventhall' ? 'logoEventhall'
+  : fid === 'logo-grandhall' ? 'logoGrandhall'
+  : fid.replace('img-', '');
 function syncClearButtons() {
   document.querySelectorAll('.filerow').forEach((row) => {
     const input = row.querySelector('input[type=file]');
@@ -461,16 +532,39 @@ $('ver').textContent = ADMIN_VERSION;
         label.className = 'inline switch';
         const cb = document.createElement('input');
         cb.type = 'checkbox';
-        cb.checked = true;
+        cb.checked = !DEFAULT_HIDDEN_TOOLTIPS.has(t.splineName);
         cb.dataset.key = t.splineName;
         label.appendChild(cb);
         label.appendChild(document.createTextNode(' ' + (t.label || t.cardTitle || t.splineName)));
         host.appendChild(label);
       }
     }
+    // de standaard uitgevinkte punten moeten ook in de eerste preview zitten
+    schedulePreview();
   } catch (e) {
     host.innerHTML = '<p class="hint">Tooltiplijst kon niet worden geladen (' + (e.message || e) + ')</p>';
   }
+})();
+
+// decor-presets: opties uitschakelen waarvan het bestand (nog) niet in
+// assets/decors/ staat, zodat er geen "leeg" decor gekozen kan worden
+(async () => {
+  try {
+    const { DECOR_PRESETS } = await import(new URL('../src/branding.js', location.href).href + '?' + ADMIN_VERSION);
+    for (const opt of document.querySelectorAll('#eh-decor option')) {
+      if (!opt.value.startsWith('preset:')) continue;
+      const file = DECOR_PRESETS[opt.value.slice(7)];
+      let ok = false;
+      if (file) {
+        try { ok = (await fetch(projectBase() + 'assets/decors/' + file, { method: 'HEAD' })).ok; }
+        catch { ok = false; }
+      }
+      if (!ok) {
+        opt.disabled = true;
+        opt.textContent += ' — bestand ontbreekt in assets/decors/';
+      }
+    }
+  } catch (e) { /* check is optioneel; opties blijven dan gewoon staan */ }
 })();
 syncClearButtons();
 renderEvents();

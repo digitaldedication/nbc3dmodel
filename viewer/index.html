@@ -67,11 +67,11 @@ const url = (p) => new URL(p, BASE).href;
 // Cache-busting op de eigen modules: browsers cachen ES-modules los van de
 // pagina, waardoor een hard refresh soms een verouderde branding.js liet
 // draaien. Bump APP_VERSION bij elke wijziging aan src/*.
-const APP_VERSION = 'v15';
-let Application, applyBranding, initTooltips;
+const APP_VERSION = 'v17';
+let Application, applyBranding, DECOR_PRESETS, initTooltips;
 try {
   ({ Application } = await import(url('vendor/spline/runtime.js')));
-  ({ applyBranding } = await import(url('src/branding.js') + '?' + APP_VERSION));
+  ({ applyBranding, DECOR_PRESETS } = await import(url('src/branding.js') + '?' + APP_VERSION));
   ({ initTooltips } = await import(url('src/tooltips.js') + '?' + APP_VERSION));
 } catch (e) {
   fail('Kon de 3D-runtime niet laden (' + (e.message || e) + '). Controleer of vendor/, src/ en assets/ mee zijn gepubliceerd.');
@@ -145,10 +145,9 @@ async function showScene(key) {
     const preset = cfg.eventhall && typeof cfg.eventhall.type === 'string' && cfg.eventhall.type.startsWith('preset:')
       ? cfg.eventhall.type.slice(7) : null;
     if (preset) {
-      const files = { blauw: 'blauw.jpg', wit: 'wit.jpg', geel: 'geel.png', 'blauw-glas': 'blauw-glas.jpg' };
-      if (files[preset]) {
+      if (DECOR_PRESETS[preset]) {
         cfg.eventhall.type = 'custom';
-        cfg.eventhall.image = url('assets/decors/' + files[preset]);
+        cfg.eventhall.image = url('assets/decors/' + DECOR_PRESETS[preset]);
       }
     }
     await applyBranding(app, cfg);
