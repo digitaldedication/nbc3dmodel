@@ -297,6 +297,74 @@ export function recolorBrandColors(app, primaryHex, secondaryHex) {
   return changed;
 }
 
+/**
+ * De bovenranden/zijkanten van het Event Hall-decor (meshes "Deel_5*",
+ * materiaal "O-500") zijn in de scène altijd NBC-oranje — nét buiten de
+ * tolerantie van de merkkleur-remap. Maak ze neutraal lichtgrijs zodat ze
+ * bij elke huisstijl passen.
+ */
+export function neutralizeDecorEdges(app, rgb = [0.85, 0.85, 0.85]) {
+  let n = 0;
+  app._scene.traverse((o) => {
+    if (!o.isMesh || !/^Deel_5/.test(o.name || '')) return;
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    for (const m of mats) {
+      if (!m || !Array.isArray(m.layers)) continue;
+      for (const layer of m.layers) {
+        const d = layer && layer.data;
+        if (!d || d.type !== 'color') continue;
+        if (d.color && typeof d.color === 'object' && 'r' in d.color) {
+          d.color.r = rgb[0]; d.color.g = rgb[1]; d.color.b = rgb[2];
+        }
+        const u = layer.uniforms || {};
+        for (const key of Object.keys(u)) {
+          const v = u[key] && u[key].value;
+          if (/color/i.test(key) && v && v.isColor) { v.setRGB(rgb[0], rgb[1], rgb[2]); n++; }
+        }
+      }
+    }
+  });
+  return n;
+}
+
+/**
+ * Geef de 2 wanden naast het Grand Hall-middenscherm ("Scherm L" / "Scherm R"
+ * onder "Links + Rechts" op het Grand Hall-podium) eigen kleuren, los van de
+ * huisstijlkleuren. Aanroepen NA recolorBrandColors (deze zet de stops
+ * rechtstreeks, ongeacht de huidige kleur).
+ */
+export function recolorGrandHallWalls(app, primaryHex, secondaryHex) {
+  const p = hexToRgb01(primaryHex);
+  const s = hexToRgb01(secondaryHex || primaryHex);
+  let n = 0;
+  app._scene.traverse((o) => {
+    if (!o.isMesh || !o.parent || (o.parent.name || '') !== 'Links + Rechts') return;
+    const to = o.name === 'Scherm L' ? p : o.name === 'Scherm R' ? s : null;
+    if (!to) return;
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    for (const m of mats) {
+      if (!m || !Array.isArray(m.layers)) continue;
+      for (const layer of m.layers) {
+        const u = (layer && layer.uniforms) || {};
+        for (const key of Object.keys(u)) {
+          const v = u[key] && u[key].value;
+          if (!/_colors$/.test(key) || !Array.isArray(v)) continue;
+          for (const stop of v) {
+            if (stop && typeof stop.x === 'number') { stop.x = to[0]; stop.y = to[1]; stop.z = to[2]; n++; }
+          }
+        }
+        const d = layer && layer.data;
+        if (d && Array.isArray(d.colors)) {
+          for (const c of d.colors) {
+            if (Array.isArray(c) && c.length >= 3) { c[0] = to[0]; c[1] = to[1]; c[2] = to[2]; }
+          }
+        }
+      }
+    }
+  });
+  return n;
+}
+
 /* ------------------------------------------------------------------ *
  *  Opstellingen per hal tonen/verbergen                               *
  * ------------------------------------------------------------------ */
@@ -930,6 +998,14 @@ function applyPillarBandPose(app, skipPlane = null, pos = 'midden') {
     for (const r of (group.children || [])) {
       if (!r.isMesh || r === skipPlane || r.name === 'brand-logo-grandhall') continue;
       if (!r.data || typeof r.updateByOp !== 'function' || !Array.isArray(r.data.hiddenMatrix)) continue;
+      // het ACHTERVLAK van elke pilaar is 180° gekanteld gebakken (rotatie
+      // x≈π): de hm-assen werken er gespiegeld op, waardoor het na de
+      // herpositionering als los vlakje boven/achter de pilaar uitsteekt.
+      // Er is geen betrouwbare pose voor dit vlak — verbergen.
+      if (r.rotation && Math.abs(Math.abs(r.rotation.x) - Math.PI) < 0.1) {
+        r.visible = false;
+        continue;
+      }
       try {
         const hm = [...r.data.hiddenMatrix];
         hm[5] = PILLAR_BAND_HM_SCALE;
@@ -963,7 +1039,10 @@ function applyPillarBandPose(app, skipPlane = null, pos = 'midden') {
  *              op de originele band — eigen beelden op de pilaren zijn
  *              uitgeschakeld wegens het gebakken render-regime van de instances)
  *   eventhall: { decor: 'verloop'|'effen1'|'effen2'|'zwart'|'custom', image?, logoSpots? }
- *   grandhall: { mode: 'kleur'|'zwart', image? } — alleen het middenscherm (16:9)
+ *   grandhall: { mode: 'kleur'|'zwart', image?, colors? } — middenscherm (16:9);
+ *              colors: { primary, secondary } — eigen kleuren voor het Grand
+ *              Hall-decor (middenscherm-verloop + de 2 wanden ernaast) in
+ *              plaats van de huisstijlkleuren
  *   halls:     { eventhall?, grandhall?, hosp1?, hosp2? } — opstelling tonen/verbergen
  *   lights:    true om ook de lichten om te kleuren
  */
@@ -1001,9 +1080,13 @@ export async function applyBranding(app, config = {}) {
   // Content voor het Grand Hall-vlak. Wordt hieronder BINNEN de pilaren-lus
   // geswapt en heeft EXACT de originele holdermaat (Spline weigert uploads met
   // andere afmetingen); de inhoud is voorvervormd op de schermverhouding.
+  // eigen Grand Hall-kleuren (optioneel) — anders de huisstijlkleuren
+  const ghColors = (grandhallCfg.colors && grandhallCfg.colors.primary)
+    ? { primary: grandhallCfg.colors.primary, secondary: grandhallCfg.colors.secondary || grandhallCfg.colors.primary }
+    : { primary, secondary };
   const ghContent = (ghInfo && ghHolder && wantGrandhall) ? buildGrandHallContent(app, {
     mode: grandhallCfg.mode || 'kleur', image: grandhallCfg.image || null, logoImg,
-    colors: { primary, secondary },
+    colors: ghColors,
     aspect: ghScreen ? ghScreen.w / Math.max(ghScreen.h, 1e-6) : 16 / 9,
     holderW: (ghAsset && ghAsset.width) || 426,
     holderH: (ghAsset && ghAsset.height) || 191,
@@ -1062,8 +1145,17 @@ export async function applyBranding(app, config = {}) {
     result.eventhallParts = applyEventhallDecor(app, { decor: eventhallCfg, colors, logoImg });
   }
 
+  // 3b. bovenranden van het decor: altijd neutraal grijs i.p.v. NBC-oranje
+  neutralizeDecorEdges(app);
+
   // 4. NBC-verloop (pilaren, Grand Hall-scherm, LED-accenten) → huisstijlkleuren
   if (primary) result.recolored = recolorBrandColors(app, primary, secondary);
+
+  // 4b. eigen Grand Hall-kleuren op de 2 wanden naast het middenscherm
+  //     (het middenscherm zelf krijgt ze al via ghContent)
+  if (grandhallCfg.colors && grandhallCfg.colors.primary) {
+    result.ghWalls = recolorGrandHallWalls(app, ghColors.primary, ghColors.secondary);
+  }
 
   // 5. Grand Hall-middenscherm: vlak verplaatsen/schalen op het scherm
   //    (de content is al vroeg geswapt)

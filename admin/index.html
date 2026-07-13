@@ -133,7 +133,18 @@
       </div>
       <label for="img-grandhall">Eigen beeld middenscherm (16:9, optioneel)</label>
       <span class="filerow"><input type="file" id="img-grandhall" accept="image/*"><button type="button" class="clearfile" data-for="img-grandhall" title="Verwijderen" aria-label="Upload verwijderen">×</button></span>
-      <p class="hint">Het logo komt gecentreerd op het middenscherm; de zijschermen volgen de huisstijlkleuren.</p>
+      <label class="inline switch" style="margin-top:10px"><input type="checkbox" id="gh-eigen-kleuren"> Eigen kleuren voor het Grand Hall-decor</label>
+      <div id="gh-kleuren-row" class="colors" style="display:none">
+        <div>
+          <label for="gh-kleur1">GH kleur 1</label>
+          <input type="color" id="gh-kleur1" value="#009684">
+        </div>
+        <div>
+          <label for="gh-kleur2">GH kleur 2</label>
+          <input type="color" id="gh-kleur2" value="#DD9D40">
+        </div>
+      </div>
+      <p class="hint">Het logo komt gecentreerd op het middenscherm; de zijschermen volgen de huisstijlkleuren — of de eigen Grand Hall-kleuren hierboven (middenscherm-verloop + de 2 wanden ernaast).</p>
     </fieldset>
 
     <fieldset>
@@ -175,7 +186,7 @@
 
 <script type="module">
 const $ = (id) => document.getElementById(id);
-const ADMIN_VERSION = 'v15';
+const ADMIN_VERSION = 'v16';
 
 // Fouten nooit stil laten vallen: toon ze als melding onderin
 function showError(msg) {
@@ -262,7 +273,12 @@ async function buildConfig() {
       logoSpots: logoSpots || 1,
       logo: logoSpots > 0,
     },
-    grandhall: { mode: document.querySelector('input[name=ghmode]:checked').value },
+    grandhall: {
+      mode: document.querySelector('input[name=ghmode]:checked').value,
+      colors: $('gh-eigen-kleuren').checked
+        ? { primary: $('gh-kleur1').value, secondary: $('gh-kleur2').value }
+        : undefined,
+    },
     scene,
     scenes: $('allowSwitch').checked ? undefined : [scene],
     halls: { eventhall: $('hall-eventhall').checked, grandhall: $('hall-grandhall').checked },
@@ -307,6 +323,12 @@ function schedulePreview() {
 }
 document.querySelector('aside').addEventListener('change', schedulePreview);
 $('eventName').addEventListener('input', schedulePreview);
+
+/* eigen Grand Hall-kleuren: pickers alleen tonen als de optie aanstaat */
+function syncGhKleuren() {
+  $('gh-kleuren-row').style.display = $('gh-eigen-kleuren').checked ? 'flex' : 'none';
+}
+$('gh-eigen-kleuren').addEventListener('change', syncGhKleuren);
 
 /* ---------- opgeslagen events ---------- */
 const loadEvents = () => { try { return JSON.parse(localStorage.getItem(STORE_KEY)) || []; } catch { return []; } };
@@ -366,6 +388,13 @@ function loadIntoForm(ev) {
   $('eh-logospots').value = eh.logo === false ? '0' : String(eh.logoSpots || 2);
   const ghm = (c.grandhall && c.grandhall.mode) || 'kleur';
   document.querySelector(`input[name=ghmode][value=${ghm}]`).checked = true;
+  const ghc = (c.grandhall && c.grandhall.colors) || null;
+  $('gh-eigen-kleuren').checked = !!(ghc && ghc.primary);
+  if (ghc && ghc.primary) {
+    $('gh-kleur1').value = ghc.primary;
+    $('gh-kleur2').value = ghc.secondary || ghc.primary;
+  }
+  syncGhKleuren();
   uploads.logo = c.logo || null;
   for (const role of ['eventhall', 'grandhall', 'ledwall', 'narrowcasting']) {
     uploads[role] = (c.screens && c.screens[role]) || null;
