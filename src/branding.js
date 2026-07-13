@@ -29,6 +29,23 @@ export const SCREEN_ROLES = [
 /** Assets die nooit vervangen mogen worden (omgevings-textures e.d.). */
 const PROTECTED_ASSETS = /matcap|tree-branch|empty|video/i;
 
+/**
+ * Meegeleverde Event Hall-decors (bestanden in assets/decors/).
+ * Sleutel = presetnaam in de config ("preset:<naam>"), waarde = bestandsnaam.
+ * Wordt gebruikt door de viewer (omzetten naar afbeelding) én de
+ * beheeromgeving (dropdown + beschikbaarheidscheck).
+ */
+export const DECOR_PRESETS = {
+  'blauw': 'blauw.jpg',
+  'blauw-glas': 'blauw-glas.jpg',
+  'wit': 'wit.jpg',
+  'geel': 'geel.png',
+  'boeken': 'boeken.jpg',
+  'wit-architectuur': 'wit-architectuur.jpg',
+  'blauw-goud': 'blauw-goud.jpg',
+  'rood': 'rood.jpg',
+};
+
 function loadImage(src) {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -122,8 +139,14 @@ export function swapHolderImage(holder, imageLike) {
  * richtingen (dus in het verticale midden van de band).
  */
 function pillarBandLogoCanvas(logoImg, w = 426, h = 191, pad = 0.05) {
-  const BAND_H_WORLD = 40.1; // verticaal op de pilaar (canvas-x-as)
-  const BAND_W_WORLD = 7.2;  // horizontaal (canvas-y-as)
+  // Bandlengte volgt uit de hiddenMatrix-kalibratie van de pilaarvlakken:
+  // 123,0 wereld bij hm-schaal 12,95 (full-fill) → 9,498 wereld per hm-eenheid,
+  // dus de band (hm-schaal 4,09) is 4,09 × 9,498 ≈ 38,85 wereld lang. De
+  // eerdere 40,1 kwam uit de three.js-matrix van het ORIGINELE vlak, maar de
+  // gebakken rendermaat wijkt daarvan af — het logo werd daardoor ~3% te kort
+  // getekend en oogde net iets te breed.
+  const BAND_H_WORLD = 38.85; // verticaal op de pilaar (canvas-x-as)
+  const BAND_W_WORLD = 7.2;   // horizontaal (canvas-y-as)
   const c = document.createElement('canvas');
   c.width = w; c.height = h;
   const ctx = c.getContext('2d');
@@ -1038,11 +1061,15 @@ function applyPillarBandPose(app, skipPlane = null, pos = 'midden') {
  *              (screens.pilaren wordt genegeerd: pilaren tonen alleen het logo
  *              op de originele band — eigen beelden op de pilaren zijn
  *              uitgeschakeld wegens het gebakken render-regime van de instances)
- *   eventhall: { decor: 'verloop'|'effen1'|'effen2'|'zwart'|'custom', image?, logoSpots? }
- *   grandhall: { mode: 'kleur'|'zwart', image?, colors? } — middenscherm (16:9);
+ *   eventhall: { decor: 'verloop'|'effen1'|'effen2'|'zwart'|'custom', image?,
+ *              logoSpots?, logoImage? } — logoImage: eigen logo (URL/data-URI)
+ *              voor de plekken op de decorwand, anders het gewone logo
+ *   grandhall: { mode: 'kleur'|'zwart', image?, colors?, logoImage? } —
+ *              middenscherm (16:9);
  *              colors: { primary, secondary } — eigen kleuren voor het Grand
  *              Hall-decor (middenscherm-verloop + de 2 wanden ernaast) in
- *              plaats van de huisstijlkleuren
+ *              plaats van de huisstijlkleuren;
+ *              logoImage: eigen logo voor het middenscherm, anders het gewone logo
  *   halls:     { eventhall?, grandhall?, hosp1?, hosp2? } — opstelling tonen/verbergen
  *   lights:    true om ook de lichten om te kleuren
  */
@@ -1063,6 +1090,9 @@ export async function applyBranding(app, config = {}) {
   const grandhallCfg = { ...(config.grandhall || {}) };
   if (grandhallCfg.image) grandhallCfg.image = await loadImage(grandhallCfg.image);
   if (!grandhallCfg.image && overrides.grandhall) grandhallCfg.image = overrides.grandhall;
+  // eigen logo per scherm (anders het gewone logo)
+  const ehLogoImg = eventhallCfg.logoImage ? await loadImage(eventhallCfg.logoImage) : null;
+  const ghLogoImg = grandhallCfg.logoImage ? await loadImage(grandhallCfg.logoImage) : null;
 
   const result = { swapped: [], recolored: 0, lights: 0, skipped: [], grandhall: false, eventhallParts: 0, pillarsFilled: 0 };
 
@@ -1073,7 +1103,7 @@ export async function applyBranding(app, config = {}) {
   // het pilaren-swappen (elke holder mag maar één keer geswapt worden).
   const ghInfo = findGrandHallPlane(app, pilarenAssets);
   const ghHolder = ghInfo && ghInfo.holder;
-  const wantGrandhall = !!(logoImg || grandhallCfg.image || grandhallCfg.mode === 'zwart');
+  const wantGrandhall = !!(logoImg || ghLogoImg || grandhallCfg.image || grandhallCfg.mode === 'zwart');
 
   const ghScreen = grandHallScreenSize(app);
   const ghAsset = ghHolder ? pilarenAssets.find((a) => a.holder === ghHolder) : null;
@@ -1085,7 +1115,7 @@ export async function applyBranding(app, config = {}) {
     ? { primary: grandhallCfg.colors.primary, secondary: grandhallCfg.colors.secondary || grandhallCfg.colors.primary }
     : { primary, secondary };
   const ghContent = (ghInfo && ghHolder && wantGrandhall) ? buildGrandHallContent(app, {
-    mode: grandhallCfg.mode || 'kleur', image: grandhallCfg.image || null, logoImg,
+    mode: grandhallCfg.mode || 'kleur', image: grandhallCfg.image || null, logoImg: ghLogoImg || logoImg,
     colors: ghColors,
     aspect: ghScreen ? ghScreen.w / Math.max(ghScreen.h, 1e-6) : 16 / 9,
     holderW: (ghAsset && ghAsset.width) || 426,
@@ -1142,7 +1172,7 @@ export async function applyBranding(app, config = {}) {
 
   // 3. Event Hall-decorwand (één doorlopend beeld over de 4 delen)
   if (primary || eventhallCfg.image) {
-    result.eventhallParts = applyEventhallDecor(app, { decor: eventhallCfg, colors, logoImg });
+    result.eventhallParts = applyEventhallDecor(app, { decor: eventhallCfg, colors, logoImg: ehLogoImg || logoImg });
   }
 
   // 3b. bovenranden van het decor: altijd neutraal grijs i.p.v. NBC-oranje
@@ -1163,7 +1193,7 @@ export async function applyBranding(app, config = {}) {
     result.grandhall = setupGrandHallScreen(app, {
       mode: grandhallCfg.mode || 'kleur',
       image: grandhallCfg.image || null,
-      logoImg,
+      logoImg: ghLogoImg || logoImg,
       planeInfo: ghInfo,
     });
   }
