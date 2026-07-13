@@ -138,9 +138,9 @@
 
     <fieldset>
       <legend>Eigen beeld per schermgroep (optioneel)</legend>
-      <label for="img-pilaren" style="margin-top:0">LED-pilaren (staand beeld — vult alle 4 zijden volledig)</label>
-      <span class="filerow"><input type="file" id="img-pilaren" accept="image/*"><button type="button" class="clearfile" data-for="img-pilaren" title="Verwijderen" aria-label="Upload verwijderen">×</button></span>
-      <p class="hint">Lever aan op verhouding <b>1 : 11,75</b> (breedte : hoogte), bijv. 300 × 3525 px — dan vult het beeld de pilaar exact zonder bijsnijden. Alle 4 zijden tonen hetzelfde beeld. Wijkt de verhouding af, dan wordt passend gesneden (cover).</p>
+      <label for="img-pilaren" style="margin-top:0">Logo voor de LED-pilaren (bijv. andere kleurvariant)</label>
+      <span class="filerow"><input type="file" id="img-pilaren" accept="image/png,image/svg+xml,image/webp"><button type="button" class="clearfile" data-for="img-pilaren" title="Verwijderen" aria-label="Upload verwijderen">×</button></span>
+      <p class="hint">Komt zo groot mogelijk op de logoband van elke pilaar — zelfde plek en uitlijning als het NBC-logo. Zonder upload wordt het gewone logo gebruikt.</p>
       <label for="img-ledwall">LED-wall entree (16:9)</label>
       <span class="filerow"><input type="file" id="img-ledwall" accept="image/*"><button type="button" class="clearfile" data-for="img-ledwall" title="Verwijderen" aria-label="Upload verwijderen">×</button></span>
       <label for="img-narrowcasting">Registratie-/narrowcastingschermen (16:9)</label>
@@ -163,7 +163,7 @@
 
 <script type="module">
 const $ = (id) => document.getElementById(id);
-const ADMIN_VERSION = 'v12';
+const ADMIN_VERSION = 'v13';
 
 // Fouten nooit stil laten vallen: toon ze als melding onderin
 function showError(msg) {
@@ -214,13 +214,19 @@ const uploads = { logo: null, eventhall: null, grandhall: null, ledwall: null, n
 
 async function buildConfig() {
   const screens = {};
-  for (const role of ['eventhall', 'grandhall', 'ledwall', 'narrowcasting', 'pilaren']) {
+  for (const role of ['eventhall', 'grandhall', 'ledwall', 'narrowcasting']) {
     const f = $('img-' + role).files[0];
     if (f) {
       try { uploads[role] = await fileToDataUri(f, role === 'eventhall' ? 2400 : 1600); }
       catch (e) { showError(`Afbeelding "${f.name}" kan niet worden gelezen (gebruik jpg/png/webp)`); }
     }
     if (uploads[role]) screens[role] = uploads[role];
+  }
+  // apart logo voor de logoband van de LED-pilaren
+  const pilarenFile = $('img-pilaren').files[0];
+  if (pilarenFile) {
+    try { uploads.pilaren = await fileToDataUri(pilarenFile, 800); }
+    catch (e) { showError(`Logo "${pilarenFile.name}" kan niet worden gelezen (gebruik png)`); }
   }
   const logoFile = $('logo').files[0];
   if (logoFile) {
@@ -233,6 +239,7 @@ async function buildConfig() {
     eventName: $('eventName').value.trim() || undefined,
     colors: { primary: $('c1').value, secondary: $('c2').value },
     logo: uploads.logo || undefined,
+    pillarLogo: uploads.pilaren || undefined,
     screens: Object.keys(screens).length ? screens : undefined,
     eventhall: {
       type: uploads.eventhall ? 'custom' : $('eh-decor').value,
@@ -344,10 +351,14 @@ function loadIntoForm(ev) {
   const ghm = (c.grandhall && c.grandhall.mode) || 'kleur';
   document.querySelector(`input[name=ghmode][value=${ghm}]`).checked = true;
   uploads.logo = c.logo || null;
-  for (const role of ['eventhall', 'grandhall', 'ledwall', 'narrowcasting', 'pilaren']) {
+  for (const role of ['eventhall', 'grandhall', 'ledwall', 'narrowcasting']) {
     uploads[role] = (c.screens && c.screens[role]) || null;
     $('img-' + role).value = '';
   }
+  // pilaren-veld is het aparte pilaar-logo (oude events met screens.pilaren
+  // worden genegeerd — dat beeld wordt niet meer op de pilaren gezet)
+  uploads.pilaren = c.pillarLogo || null;
+  $('img-pilaren').value = '';
   $('logo').value = '';
   toast('Event geladen — wijzig en sla opnieuw op (zelfde token)');
   schedulePreview();

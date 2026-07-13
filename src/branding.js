@@ -342,11 +342,10 @@ export function coverCanvas(img, w, h) {
 }
 
 /** Logo op transparante achtergrond, in de beeldverhouding van het origineel. */
-export function makeLogoCanvas(logoImg, width = 852, height = 382) {
+export function makeLogoCanvas(logoImg, width = 852, height = 382, pad = 0.06) {
   const c = document.createElement('canvas');
   c.width = width; c.height = height;
   const ctx = c.getContext('2d');
-  const pad = 0.06;
   const s = Math.min((width * (1 - pad * 2)) / logoImg.width, (height * (1 - pad * 2)) / logoImg.height);
   const w = logoImg.width * s, h = logoImg.height * s;
   ctx.drawImage(logoImg, (width - w) / 2, (height - h) / 2, w, h);
@@ -854,6 +853,43 @@ export function tintPillarCorners(app, image) {
   return n;
 }
 
+// Bandpose: gekalibreerd zodat het herbouwde vlak exact de originele
+// logoband beslaat (wereld ≈ [2,9 .. 42,9] op de referentiepilaar; de
+// relatie is mesh-relatief en geldt voor alle pilaren in alle scènes).
+const PILLAR_BAND_HM_SCALE = 4.09;
+const PILLAR_BAND_HM_SHIFT = -28.5;
+
+/**
+ * Herbouwt de pilaar-logovlakken op exact de originele bandpositie, zodat ze
+ * het volledige (logo)canvas 1-op-1 tonen in plaats van het kleine gebakken
+ * textuurvenster van het originele materiaal. Zie fillPillarsWithImage voor
+ * waarom dit via data.hiddenMatrix + een geometry-op moet.
+ */
+function applyPillarBandPose(app, skipPlane = null) {
+  const scene = app._scene;
+  const opCtx = { shared: app._sharedAssetsManager, scene };
+  let n = 0;
+  scene.traverse((group) => {
+    if (!/NBC logo's pilaar/i.test(group.name || '')) return;
+    for (const r of (group.children || [])) {
+      if (!r.isMesh || r === skipPlane || r.name === 'brand-logo-grandhall') continue;
+      if (!r.data || typeof r.updateByOp !== 'function' || !Array.isArray(r.data.hiddenMatrix)) continue;
+      try {
+        const hm = [...r.data.hiddenMatrix];
+        hm[5] = PILLAR_BAND_HM_SCALE;
+        hm[13] = PILLAR_BAND_HM_SHIFT;
+        const l = { ...r.data, hiddenMatrix: hm };
+        r.updateByOp({ type: 0, path: [], props: { hiddenMatrix: l.hiddenMatrix } }, l, opCtx, false);
+        const l2 = { ...r.data, geometry: { ...r.data.geometry } };
+        r.updateByOp({ type: 0, path: [], props: { geometry: l2.geometry } }, l2, opCtx, false);
+        n++;
+      } catch (e) { /* vlak overslaan; de rest gaat door */ }
+    }
+  });
+  if (app.requestRender) app.requestRender();
+  return n;
+}
+
 /* ------------------------------------------------------------------ *
  *  Hoofd-API                                                          *
  * ------------------------------------------------------------------ */
@@ -864,7 +900,12 @@ export function tintPillarCorners(app, image) {
  * config:
  *   colors:    { primary, secondary }
  *   logo:      URL/data-URI (png met transparantie)
- *   screens:   { pilaren?, ledwall?, narrowcasting?, tv? } — eigen beeld per groep
+ *   pillarLogo: URL/data-URI — apart logo (bijv. andere kleurvariant) voor de
+ *              logoband van de LED-pilaren; valt terug op het gewone logo
+ *   screens:   { ledwall?, narrowcasting?, tv? } — eigen beeld per groep
+ *              (screens.pilaren wordt genegeerd: pilaren tonen alleen het logo
+ *              op de originele band — eigen beelden op de pilaren zijn
+ *              uitgeschakeld wegens het gebakken render-regime van de instances)
  *   eventhall: { decor: 'verloop'|'effen1'|'effen2'|'zwart'|'custom', image?, logoSpots? }
  *   grandhall: { mode: 'kleur'|'zwart', image? } — alleen het middenscherm (16:9)
  *   halls:     { eventhall?, grandhall?, hosp1?, hosp2? } — opstelling tonen/verbergen
@@ -876,9 +917,10 @@ export async function applyBranding(app, config = {}) {
   const secondary = colors.secondary || null;
 
   const logoImg = logo ? await loadImage(logo) : null;
+  const pillarLogoImg = config.pillarLogo ? await loadImage(config.pillarLogo) : null;
   const overrides = {};
   for (const [role, src] of Object.entries(screens)) {
-    if (src) overrides[role] = await loadImage(src);
+    if (src && role !== 'pilaren') overrides[role] = await loadImage(src);
   }
   const eventhallCfg = { ...(config.eventhall || {}) };
   if (eventhallCfg.image) eventhallCfg.image = await loadImage(eventhallCfg.image);
@@ -927,27 +969,27 @@ export async function applyBranding(app, config = {}) {
   }
 
   // 2. pilaren + Grand Hall-vlak. Het vlak deelt een holder met de pilaren;
-  //    die holder krijgt (bij zwart/eigen beeld) de Grand Hall-content, de rest
-  //    het logo. Alles in deze lus, zodat de swaps zeker renderen.
-  if (overrides.pilaren) {
-    // zonder Grand Hall-gebruik mag óók de gh-holder het pilaarbeeld krijgen;
-    // mét Grand Hall wordt dat vlak overgeslagen en krijgt zijn holder de
-    // Grand Hall-content
-    const fillAssets = wantGrandhall ? pilarenAssets.filter((a) => a.holder !== ghHolder) : pilarenAssets;
-    result.pillarsFilled = fillPillarsWithImage(app, overrides.pilaren, fillAssets, wantGrandhall ? (ghInfo && ghInfo.plane) : null);
-    if (wantGrandhall && ghContent && ghHolder) swapHolderImage(ghHolder, ghContent); // in dezelfde fase
-  } else if (logoImg) {
+  //    die holder krijgt (bij zwart/eigen beeld) de Grand Hall-content, de
+  //    rest het (pilaar)logo op de originele logoband — exact dezelfde plek
+  //    en uitlijning als het NBC-logo, zo groot mogelijk (het logo vult de
+  //    hele band, verticaal zoals het origineel).
+  const bandLogo = pillarLogoImg || logoImg;
+  if (bandLogo) {
     for (const a of pilarenAssets) {
       if (a.holder === ghHolder && ghContent) {
         swapHolderImage(a.holder, ghContent);
       } else {
-        swapHolderImage(a.holder, makeLogoCanvas(logoImg, a.width || 852, a.height || 382));
+        swapHolderImage(a.holder, makeLogoCanvas(bandLogo, a.width || 426, a.height || 191, 0.02));
       }
       result.swapped.push({ asset: a.name, role: 'pilaren' });
     }
+    // De originele band toont maar een klein venster van de texture (gebakken
+    // crop/rotatie in de shader). Door de vlakken via het data-kanaal op
+    // exact de originele bandpositie te herbouwen tonen ze het volledige
+    // canvas 1-op-1: het logo vult dan de hele band.
+    applyPillarBandPose(app, wantGrandhall ? (ghInfo && ghInfo.plane) : null);
   } else if (ghContent && ghHolder) {
-    // geen logo en geen pilaren-upload, maar wél Grand Hall-content
-    // (zwart scherm of eigen beeld) — dan alleen die holder swappen
+    // geen logo, maar wél Grand Hall-content (zwart scherm of eigen beeld)
     swapHolderImage(ghHolder, ghContent);
   }
 
@@ -958,9 +1000,6 @@ export async function applyBranding(app, config = {}) {
 
   // 4. NBC-verloop (pilaren, Grand Hall-scherm, LED-accenten) → huisstijlkleuren
   if (primary) result.recolored = recolorBrandColors(app, primary, secondary);
-  // 4b. bij een pilaren-upload: de pilaarhoeken (verloop) naar de beeldkleur
-  //     tinten — ná de recolor, anders wordt de tint weer overschreven
-  if (overrides.pilaren) tintPillarCorners(app, overrides.pilaren);
 
   // 5. Grand Hall-middenscherm: vlak verplaatsen/schalen op het scherm
   //    (de content is al vroeg geswapt)
