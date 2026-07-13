@@ -721,12 +721,13 @@ function materialUsesTexture(material, tex) {
 // werkt voor álle pilaren in álle scènes, zonder metingen of wachten).
 const PILLAR_HM_SCALE = 12.95;
 const PILLAR_HM_SHIFT = -35.6;
-// Het vlak beslaat mesh-relatief ~[6 .. 129]; het beeld vult het bovenste
-// deel tot aan de binnenplaatsvloer (mesh-relatief 44,7). Daaronder (alleen
-// zichtbaar bij pilaren op lager gelegen vloeren) wordt de onderste
-// beeldrand doorgetrokken.
-const PILLAR_IMG_FRACTION = 0.688;
-// zichtbare pilaarmaat boven de binnenplaatsvloer (voor de beeldverhouding)
+// Het vlak beslaat mesh-relatief ~[6 .. 129] (wereldhoogte ≈ 123); de vloer
+// van de binnenplaats ligt op 84,6 onder de top. Het beeld staat op WARE
+// verhouding met de voet op de vloer; erboven wordt de bovenste beeldrand
+// doorgetrokken, eronder (alleen zichtbaar bij lager gelegen vloeren) de
+// onderste beeldrand.
+const PILLAR_PLANE_H = 123.0;
+// zichtbare pilaarmaat boven de binnenplaatsvloer
 const PILLAR_FACE_W = 7.2;
 const PILLAR_FACE_H = 84.6;
 
@@ -754,8 +755,12 @@ function averageImageColor(image) {
 /**
  * Staand beeld gedraaid in de holdermaat componeren (canvas-x = verticaal,
  * x=0 = top van het vlak), in één resample-stap voor maximale scherpte.
- * Het beeld wordt cover-gesneden op de zichtbare pilaarverhouding en vult
- * de bovenste PILLAR_IMG_FRACTION; daaronder wordt de onderrand herhaald.
+ *
+ * Het beeld wordt op WARE verhouding geplaatst: de breedte vult de pilaar
+ * (7,2 wereld-eenheden), de hoogte volgt uit de beeldverhouding, en de voet
+ * staat op de binnenplaatsvloer. Boven het beeld wordt de bovenste beeldrand
+ * doorgetrokken, onder de vloer de onderste. Is het beeld (relatief) hoger
+ * dan de zichtbare pilaar, dan wordt het cover-gesneden op de pilaarmaat.
  */
 function pillarCanvas(image, w = 426, h = 191) {
   const c = document.createElement('canvas');
@@ -763,18 +768,28 @@ function pillarCanvas(image, w = 426, h = 191) {
   const ctx = c.getContext('2d');
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
-  const targetAspect = PILLAR_FACE_W / PILLAR_FACE_H;
+  const floorX = Math.round(w * (PILLAR_FACE_H / PILLAR_PLANE_H)); // vloer, gemeten vanaf de top
   let sx = 0, sy = 0, sw = image.width, sh = image.height;
-  if (sw / sh > targetAspect) { const nw = sh * targetAspect; sx = (sw - nw) / 2; sw = nw; }
-  else { const nh = sw / targetAspect; sy = (sh - nh) / 2; sh = nh; }
-  const imgX = Math.round(w * PILLAR_IMG_FRACTION);
+  let imgWorldH = PILLAR_FACE_W * (sh / sw);
+  if (imgWorldH > PILLAR_FACE_H) {
+    // hoger dan de zichtbare pilaar → cover-crop op de pilaarverhouding
+    const nh = sw * (PILLAR_FACE_H / PILLAR_FACE_W);
+    sy = (sh - nh) / 2; sh = nh;
+    imgWorldH = PILLAR_FACE_H;
+  }
+  const imgPx = Math.max(2, Math.round(w * (imgWorldH / PILLAR_PLANE_H)));
+  const topX = floorX - imgPx; // canvas-x waar de bovenkant van het beeld begint
   ctx.save();
   ctx.translate(0, h);
   ctx.rotate(-Math.PI / 2);
-  // gedraaid stelsel: bron-x → canvas-y (breedte h), bron-y → canvas-x
-  ctx.drawImage(image, sx, sy, sw, sh, 0, 0, h, imgX);
+  // gedraaid stelsel: 1e dest-as → canvas-y (breedte h), 2e dest-as → canvas-x
+  ctx.drawImage(image, sx, sy, sw, sh, 0, topX, h, imgPx);
+  if (topX > 0) {
+    // bovenrand doortrekken tot de top van de pilaar
+    ctx.drawImage(image, sx, sy, sw, Math.max(1, Math.round(sh * 0.01)), 0, 0, h, topX);
+  }
   ctx.restore();
-  if (imgX < w) ctx.drawImage(c, Math.max(0, imgX - 2), 0, 2, h, imgX, 0, w - imgX, h);
+  if (floorX < w) ctx.drawImage(c, Math.max(0, floorX - 2), 0, 2, h, floorX, 0, w - floorX, h);
   return c;
 }
 

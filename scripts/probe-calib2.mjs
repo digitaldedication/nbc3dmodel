@@ -20,31 +20,40 @@ try {
   await new Promise((r) => setTimeout(r, 9000));
 
   const rep = await page.evaluate(async ({ S, T }) => {
+    // S = geometry-height-parameter, T = ongebruikt
     const app = window.__app;
     const scene = app._scene;
-    const { listImageAssets, swapHolderImage } = await import('/src/branding.js');
     const opCtx = { shared: app._sharedAssetsManager, scene };
-    // rotated content: groen met magenta strook aan de beeld-boven (canvas-links)
-    const assets = listImageAssets(app).filter((a) => /logo pilaar/i.test(a.name || ''));
-    for (const a of assets) {
-      const c = document.createElement('canvas');
-      c.width = a.width || 426; c.height = a.height || 191;
-      const g = c.getContext('2d');
-      g.fillStyle = '#00ff00'; g.fillRect(0, 0, c.width, c.height);
-      g.fillStyle = '#ff00ff'; g.fillRect(0, 0, Math.round(c.width * 0.06), c.height);
-      swapHolderImage(a.holder, c);
-    }
+    const c = document.createElement('canvas');
+    c.width = 256; c.height = 2048;
+    const g = c.getContext('2d');
+    g.fillStyle = '#00ff00'; g.fillRect(0, 0, 256, 2048);
+    g.fillStyle = '#ff00ff'; g.fillRect(0, 0, 256, 160);
+    const b64 = c.toDataURL('image/png').split(',')[1];
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
     let n = 0;
     scene.traverse((group) => {
       if (!/NBC logo's pilaar/i.test(group.name || '')) return;
       for (const r of (group.children || [])) {
-        if (!r.isMesh || !r.data || !Array.isArray(r.data.hiddenMatrix)) continue;
+        if (!r.isMesh || !r.data) continue;
         try {
-          const hm = [...r.data.hiddenMatrix];
-          hm[5] = S; hm[13] = T;
-          const l = { ...r.data, hiddenMatrix: hm };
-          r.updateByOp({ type: 0, path: [], props: { hiddenMatrix: l.hiddenMatrix } }, l, opCtx, false);
-          const l2 = { ...r.data, geometry: { ...r.data.geometry } };
+          const matData = JSON.parse(JSON.stringify(r.data.material));
+          for (const layer of matData.layers || []) {
+            if (!layer.data || layer.data.type !== 'texture') continue;
+            layer.data.projection = 0; layer.data.crop = false; layer.data.axis = 'x';
+            if (layer.data.texture) {
+              layer.data.texture.repeat = [1, 1];
+              layer.data.texture.offset = [0, 0];
+              layer.data.texture.rotation = 0;
+              layer.data.texture.image = { data: bytes, name: 'calib.png' };
+            }
+          }
+          const lm = { ...r.data, material: matData };
+          r.updateByOp({ type: 0, path: [], props: { material: lm.material } }, lm, opCtx, false);
+          const geo = { ...r.data.geometry, height: S };
+          const l2 = { ...r.data, geometry: geo };
           r.updateByOp({ type: 0, path: [], props: { geometry: l2.geometry } }, l2, opCtx, false);
           n++;
         } catch (e) { /* skip */ }
