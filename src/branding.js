@@ -40,10 +40,10 @@ export const DECOR_PRESETS = {
   'blauw-glas': 'blauw-glas.jpg',
   'wit': 'wit.jpg',
   'geel': 'geel.png',
-  'boeken': 'boeken.jpg',
-  'wit-architectuur': 'wit-architectuur.jpg',
-  'blauw-goud': 'blauw-goud.jpg',
-  'rood': 'rood.jpg',
+  'boeken': 'Books decor.jpg',
+  'wit-architectuur': 'Organic Beige.jpg',
+  'blauw-goud': 'Extruded boxes.jpg',
+  'rood': 'FrostedGlass rood.png',
 };
 
 function loadImage(src) {
