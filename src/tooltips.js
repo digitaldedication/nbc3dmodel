@@ -122,16 +122,19 @@ const CROSS_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" st
  */
 export function initTooltips(app, container, options = {}) {
   const accent = options.accent || '#E4032E';
+  const hidden = new Set(options.hidden || []);
   const defs = [...SPACE_TOOLTIPS, ...INFO_TOOLTIPS].map((d) => ({ ...d }));
 
-  // ankers zoeken en verbergen (drie.js-meshes én Spline-proxyobjecten)
+  // ankers zoeken en verbergen (drie.js-meshes én Spline-proxyobjecten).
+  // Ankers van uitgeschakelde tooltips gaan óók uit (geen groen blokje),
+  // maar krijgen geen knop/tekstballon.
   const anchors = [];
   const scene = app._scene;
   for (const def of defs) {
     let obj = null;
     scene.traverse((o) => { if (!obj && (o.name || '').trim() === def.splineName) obj = o; });
     if (obj) obj.visible = false;
-    anchors.push(obj ? { def, obj } : null);
+    anchors.push(obj && !hidden.has(def.splineName) ? { def, obj } : null);
   }
 
   // DOM-structuur

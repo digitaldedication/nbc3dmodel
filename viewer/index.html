@@ -67,7 +67,7 @@ const url = (p) => new URL(p, BASE).href;
 // Cache-busting op de eigen modules: browsers cachen ES-modules los van de
 // pagina, waardoor een hard refresh soms een verouderde branding.js liet
 // draaien. Bump APP_VERSION bij elke wijziging aan src/*.
-const APP_VERSION = 'v14';
+const APP_VERSION = 'v15';
 let Application, applyBranding, initTooltips;
 try {
   ({ Application } = await import(url('vendor/spline/runtime.js')));
@@ -156,7 +156,7 @@ async function showScene(key) {
     console.warn('Branding kon niet volledig worden toegepast:', e);
   }
   if (config.tooltips !== false) {
-    tooltips = initTooltips(app, stage, { accent: (config.colors && config.colors.primary) || '#E4032E' });
+    tooltips = initTooltips(app, stage, { accent: (config.colors && config.colors.primary) || '#E4032E', hidden: config.hiddenTooltips || [] });
   }
   statusEl.classList.add('hidden');
 }

@@ -210,16 +210,18 @@ function hslToRgb([h, s, l]) {
 }
 
 /**
- * Hue-gebaseerde remap voor gradient-stops: alle teal-tinten → kleur 1,
- * alle oranje-tinten → kleur 2, met behoud van de licht/donker-variatie
- * zodat het verloop zijn diepte houdt. (Alleen op gradientlagen toegepast,
- * zodat meubels e.d. met bruine/warme kleuren ongemoeid blijven.)
+ * Hue-gebaseerde remap voor gradient-stops: alle teal-tinten → EXACT kleur 1,
+ * alle oranje-tinten → EXACT kleur 2. Het verloop blijft bestaan doordat de
+ * shader tussen de stops interpoleert (kleur 1 → kleur 2); er wordt geen
+ * licht/donker-variatie meer bewaard, want dan wijkt de kleur af van wat er
+ * in de beheeromgeving gekozen is (vooral zichtbaar bij lichte kleuren).
+ * (Alleen op gradientlagen toegepast, zodat meubels e.d. ongemoeid blijven.)
  */
-function remapGradientStop(rgb, primaryHsl, secondaryHsl) {
-  const [h, s, l] = rgbToHsl(rgb);
+function remapGradientStop(rgb, primaryRgb, secondaryRgb) {
+  const [h, s] = rgbToHsl(rgb);
   if (s < 0.2) return null;
-  if (h >= 150 && h <= 200) return hslToRgb([primaryHsl[0], primaryHsl[1], l]);   // teal-familie
-  if (h >= 15 && h <= 55) return hslToRgb([secondaryHsl[0], secondaryHsl[1], l]); // oranje-familie
+  if (h >= 150 && h <= 200) return primaryRgb;   // teal-familie → kleur 1
+  if (h >= 15 && h <= 55) return secondaryRgb;   // oranje-familie → kleur 2
   return null;
 }
 
@@ -232,14 +234,12 @@ function remapGradientStop(rgb, primaryHsl, secondaryHsl) {
 export function recolorBrandColors(app, primaryHex, secondaryHex) {
   const p = hexToRgb01(primaryHex);
   const s = hexToRgb01(secondaryHex || primaryHex);
-  const pHsl = rgbToHsl(p);
-  const sHsl = rgbToHsl(s);
   let changed = 0;
 
   // egale kleuren: alleen exacte NBC-kleuren (voorzichtig)
   const mapRgb = (rgb) => (near(rgb, NBC_TEAL) ? p : near(rgb, NBC_ORANGE) ? s : null);
-  // gradient-stops: hele teal/oranje-familie op hue (verloop blijft)
-  const mapStop = (rgb) => remapGradientStop(rgb, pHsl, sHsl) || mapRgb(rgb);
+  // gradient-stops: hele teal/oranje-familie op hue → exact de gekozen kleuren
+  const mapStop = (rgb) => remapGradientStop(rgb, p, s) || mapRgb(rgb);
 
   const handleUniformValue = (val) => {
     if (!val || typeof val !== 'object') return;
@@ -616,7 +616,7 @@ export function findGrandHallPlane(app, pilarenAssets = []) {
  * gecomponeerd en daarna in de holdermaat "voorvervormd": na de UV-mapping op
  * het vlak kloppen de verhoudingen (logo dus nooit uitgerekt).
  */
-function buildGrandHallContent(app, { mode, image, logoImg, aspect = 16 / 9, holderW = 426, holderH = 191 }) {
+function buildGrandHallContent(app, { mode, image, logoImg, colors = {}, aspect = 16 / 9, holderW = 426, holderH = 191 }) {
   // 1. componeer op schermverhouding
   const W = 1280;
   const H = Math.max(2, Math.round(W / Math.max(aspect, 1e-6)));
@@ -627,7 +627,16 @@ function buildGrandHallContent(app, { mode, image, logoImg, aspect = 16 / 9, hol
     const s = Math.max(W / image.width, H / image.height);
     tctx.drawImage(image, (W - image.width * s) / 2, (H - image.height * s) / 2, image.width * s, image.height * s);
   } else {
-    if (mode === 'zwart') { tctx.fillStyle = '#0a0a0a'; tctx.fillRect(0, 0, W, H); }
+    if (mode === 'zwart') {
+      tctx.fillStyle = '#0a0a0a'; tctx.fillRect(0, 0, W, H);
+    } else if (colors.primary) {
+      // kleurmodus: verloop in exact de gekozen huisstijlkleuren
+      const grad = tctx.createLinearGradient(0, 0, W, 0);
+      grad.addColorStop(0, colors.primary);
+      grad.addColorStop(1, colors.secondary || colors.primary);
+      tctx.fillStyle = grad;
+      tctx.fillRect(0, 0, W, H);
+    }
     if (logoImg) {
       const s = Math.min((W * 0.6) / logoImg.width, (H * 0.6) / logoImg.height);
       const lw = logoImg.width * s, lh = logoImg.height * s;
@@ -901,7 +910,9 @@ export function tintPillarCorners(app, image) {
 // logoband beslaat (wereld ≈ [2,9 .. 42,9] op de referentiepilaar; de
 // relatie is mesh-relatief en geldt voor alle pilaren in alle scènes).
 const PILLAR_BAND_HM_SCALE = 4.09;
-const PILLAR_BAND_HM_SHIFT = -28.5;
+// verticale positie van de band op de pilaar (gekalibreerd; 0,617 wereld per
+// t-eenheid): 'onder' = de originele NBC-bandpositie
+const PILLAR_BAND_SHIFTS = { onder: -28.5, midden: 3.3, boven: 32.5 };
 
 /**
  * Herbouwt de pilaar-logovlakken op exact de originele bandpositie, zodat ze
@@ -909,9 +920,10 @@ const PILLAR_BAND_HM_SHIFT = -28.5;
  * textuurvenster van het originele materiaal. Zie fillPillarsWithImage voor
  * waarom dit via data.hiddenMatrix + een geometry-op moet.
  */
-function applyPillarBandPose(app, skipPlane = null) {
+function applyPillarBandPose(app, skipPlane = null, pos = 'midden') {
   const scene = app._scene;
   const opCtx = { shared: app._sharedAssetsManager, scene };
+  const shift = PILLAR_BAND_SHIFTS[pos] != null ? PILLAR_BAND_SHIFTS[pos] : PILLAR_BAND_SHIFTS.midden;
   let n = 0;
   scene.traverse((group) => {
     if (!/NBC logo's pilaar/i.test(group.name || '')) return;
@@ -921,7 +933,7 @@ function applyPillarBandPose(app, skipPlane = null) {
       try {
         const hm = [...r.data.hiddenMatrix];
         hm[5] = PILLAR_BAND_HM_SCALE;
-        hm[13] = PILLAR_BAND_HM_SHIFT;
+        hm[13] = shift;
         const l = { ...r.data, hiddenMatrix: hm };
         r.updateByOp({ type: 0, path: [], props: { hiddenMatrix: l.hiddenMatrix } }, l, opCtx, false);
         const l2 = { ...r.data, geometry: { ...r.data.geometry } };
@@ -991,6 +1003,7 @@ export async function applyBranding(app, config = {}) {
   // andere afmetingen); de inhoud is voorvervormd op de schermverhouding.
   const ghContent = (ghInfo && ghHolder && wantGrandhall) ? buildGrandHallContent(app, {
     mode: grandhallCfg.mode || 'kleur', image: grandhallCfg.image || null, logoImg,
+    colors: { primary, secondary },
     aspect: ghScreen ? ghScreen.w / Math.max(ghScreen.h, 1e-6) : 16 / 9,
     holderW: (ghAsset && ghAsset.width) || 426,
     holderH: (ghAsset && ghAsset.height) || 191,
@@ -1024,6 +1037,13 @@ export async function applyBranding(app, config = {}) {
         swapHolderImage(a.holder, ghContent);
       } else {
         swapHolderImage(a.holder, pillarBandLogoCanvas(bandLogo, a.width || 426, a.height || 191));
+        // zonder mipmaps: het logo (op transparante achtergrond) vervaagde
+        // op afstand doordat mip-niveaus met de transparantie vermengen
+        for (const t of holderTextures(a.holder)) {
+          t.generateMipmaps = false;
+          t.minFilter = 1006; // LinearFilter
+          t.needsUpdate = true;
+        }
       }
       result.swapped.push({ asset: a.name, role: 'pilaren' });
     }
@@ -1031,7 +1051,7 @@ export async function applyBranding(app, config = {}) {
     // crop/rotatie in de shader). Door de vlakken via het data-kanaal op
     // exact de originele bandpositie te herbouwen tonen ze het volledige
     // canvas 1-op-1: het logo vult dan de hele band.
-    applyPillarBandPose(app, wantGrandhall ? (ghInfo && ghInfo.plane) : null);
+    applyPillarBandPose(app, wantGrandhall ? (ghInfo && ghInfo.plane) : null, config.pillarLogoPos || 'midden');
   } else if (ghContent && ghHolder) {
     // geen logo, maar wél Grand Hall-content (zwart scherm of eigen beeld)
     swapHolderImage(ghHolder, ghContent);

@@ -140,12 +140,24 @@
       <legend>Eigen beeld per schermgroep (optioneel)</legend>
       <label for="img-pilaren" style="margin-top:0">Logo voor de LED-pilaren (bijv. andere kleurvariant)</label>
       <span class="filerow"><input type="file" id="img-pilaren" accept="image/png,image/svg+xml,image/webp"><button type="button" class="clearfile" data-for="img-pilaren" title="Verwijderen" aria-label="Upload verwijderen">×</button></span>
-      <p class="hint">Komt zo groot mogelijk op de logoband van elke pilaar — zelfde plek en uitlijning als het NBC-logo. Zonder upload wordt het gewone logo gebruikt.</p>
+      <label for="pilaren-pos">Positie logo op de pilaar</label>
+      <select id="pilaren-pos" style="width:100%;padding:8px 10px;border:1px solid #cfd6d9;border-radius:8px;font-size:14px;">
+        <option value="midden">Midden</option>
+        <option value="boven">Boven</option>
+        <option value="onder">Onder (originele NBC-plek)</option>
+      </select>
+      <p class="hint">Komt zo groot mogelijk op de logoband van elke pilaar, in originele verhouding. Zonder upload wordt het gewone logo gebruikt.</p>
       <label for="img-ledwall">LED-wall entree (16:9)</label>
       <span class="filerow"><input type="file" id="img-ledwall" accept="image/*"><button type="button" class="clearfile" data-for="img-ledwall" title="Verwijderen" aria-label="Upload verwijderen">×</button></span>
       <label for="img-narrowcasting">Registratie-/narrowcastingschermen (16:9)</label>
       <span class="filerow"><input type="file" id="img-narrowcasting" accept="image/*"><button type="button" class="clearfile" data-for="img-narrowcasting" title="Verwijderen" aria-label="Upload verwijderen">×</button></span>
       <p class="hint">Uploads vullen het volledige element (cover). Zonder eigen beeld: kleurverloop + logo.</p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Tooltips (plusjes)</legend>
+      <p class="hint" style="margin-top:0">Vink uit welke informatiepunten je NIET wilt tonen. Uitgevinkte punten verdwijnen volledig (ook het markeringsblokje).</p>
+      <div id="tooltip-toggles"><p class="hint">Laden…</p></div>
     </fieldset>
 
     <button class="primary" id="save">Event opslaan + link maken</button>
@@ -163,7 +175,7 @@
 
 <script type="module">
 const $ = (id) => document.getElementById(id);
-const ADMIN_VERSION = 'v14';
+const ADMIN_VERSION = 'v15';
 
 // Fouten nooit stil laten vallen: toon ze als melding onderin
 function showError(msg) {
@@ -235,11 +247,15 @@ async function buildConfig() {
   }
   const scene = document.querySelector('input[name=scene]:checked').value;
   const logoSpots = Number($('eh-logospots').value);
+  const hiddenTooltips = [...document.querySelectorAll('#tooltip-toggles input[type=checkbox]')]
+    .filter((cb) => !cb.checked).map((cb) => cb.dataset.key);
   return {
     eventName: $('eventName').value.trim() || undefined,
     colors: { primary: $('c1').value, secondary: $('c2').value },
     logo: uploads.logo || undefined,
     pillarLogo: uploads.pilaren || undefined,
+    pillarLogoPos: $('pilaren-pos').value,
+    hiddenTooltips: hiddenTooltips.length ? hiddenTooltips : undefined,
     screens: Object.keys(screens).length ? screens : undefined,
     eventhall: {
       type: uploads.eventhall ? 'custom' : $('eh-decor').value,
@@ -359,6 +375,11 @@ function loadIntoForm(ev) {
   // worden genegeerd — dat beeld wordt niet meer op de pilaren gezet)
   uploads.pilaren = c.pillarLogo || null;
   $('img-pilaren').value = '';
+  $('pilaren-pos').value = c.pillarLogoPos || 'midden';
+  const hiddenSet = new Set(c.hiddenTooltips || []);
+  for (const cb of document.querySelectorAll('#tooltip-toggles input[type=checkbox]')) {
+    cb.checked = !hiddenSet.has(cb.dataset.key);
+  }
   $('logo').value = '';
   toast('Event geladen — wijzig en sla opnieuw op (zelfde token)');
   schedulePreview();
@@ -418,6 +439,39 @@ document.querySelectorAll('.filerow input[type=file]').forEach((input) => {
 });
 
 $('ver').textContent = ADMIN_VERSION;
+
+// tooltip-schakelaars opbouwen uit dezelfde bron als de viewer
+(async () => {
+  const host = $('tooltip-toggles');
+  try {
+    const mod = await import(new URL('../src/tooltip-content.js', location.href).href + '?' + ADMIN_VERSION);
+    const groups = [
+      ['Ruimtes', mod.SPACE_TOOLTIPS || []],
+      ['Informatiepunten', mod.INFO_TOOLTIPS || []],
+    ];
+    host.innerHTML = '';
+    for (const [title, list] of groups) {
+      if (!list.length) continue;
+      const h = document.createElement('div');
+      h.style.cssText = 'font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:#5a6468;margin:8px 0 2px;';
+      h.textContent = title;
+      host.appendChild(h);
+      for (const t of list) {
+        const label = document.createElement('label');
+        label.className = 'inline switch';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = true;
+        cb.dataset.key = t.splineName;
+        label.appendChild(cb);
+        label.appendChild(document.createTextNode(' ' + (t.label || t.cardTitle || t.splineName)));
+        host.appendChild(label);
+      }
+    }
+  } catch (e) {
+    host.innerHTML = '<p class="hint">Tooltiplijst kon niet worden geladen (' + (e.message || e) + ')</p>';
+  }
+})();
 syncClearButtons();
 renderEvents();
 refreshPreview().catch((e) => showError('Voorbeeld laden mislukt: ' + e.message));
