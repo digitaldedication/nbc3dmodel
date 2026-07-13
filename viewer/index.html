@@ -64,11 +64,15 @@ const BASE = (() => {
 })();
 const url = (p) => new URL(p, BASE).href;
 
+// Cache-busting op de eigen modules: browsers cachen ES-modules los van de
+// pagina, waardoor een hard refresh soms een verouderde branding.js liet
+// draaien. Bump APP_VERSION bij elke wijziging aan src/*.
+const APP_VERSION = 'v12';
 let Application, applyBranding, initTooltips;
 try {
   ({ Application } = await import(url('vendor/spline/runtime.js')));
-  ({ applyBranding } = await import(url('src/branding.js')));
-  ({ initTooltips } = await import(url('src/tooltips.js')));
+  ({ applyBranding } = await import(url('src/branding.js') + '?' + APP_VERSION));
+  ({ initTooltips } = await import(url('src/tooltips.js') + '?' + APP_VERSION));
 } catch (e) {
   fail('Kon de 3D-runtime niet laden (' + (e.message || e) + '). Controleer of vendor/, src/ en assets/ mee zijn gepubliceerd.');
   throw e;

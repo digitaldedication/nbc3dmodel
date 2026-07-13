@@ -140,6 +140,7 @@
       <legend>Eigen beeld per schermgroep (optioneel)</legend>
       <label for="img-pilaren" style="margin-top:0">LED-pilaren (staand beeld — vult alle 4 zijden volledig)</label>
       <span class="filerow"><input type="file" id="img-pilaren" accept="image/*"><button type="button" class="clearfile" data-for="img-pilaren" title="Verwijderen" aria-label="Upload verwijderen">×</button></span>
+      <p class="hint">Lever aan op verhouding <b>1 : 11,75</b> (breedte : hoogte), bijv. 300 × 3525 px — dan vult het beeld de pilaar exact zonder bijsnijden. Alle 4 zijden tonen hetzelfde beeld. Wijkt de verhouding af, dan wordt passend gesneden (cover).</p>
       <label for="img-ledwall">LED-wall entree (16:9)</label>
       <span class="filerow"><input type="file" id="img-ledwall" accept="image/*"><button type="button" class="clearfile" data-for="img-ledwall" title="Verwijderen" aria-label="Upload verwijderen">×</button></span>
       <label for="img-narrowcasting">Registratie-/narrowcastingschermen (16:9)</label>
@@ -162,7 +163,7 @@
 
 <script type="module">
 const $ = (id) => document.getElementById(id);
-const ADMIN_VERSION = 'v11';
+const ADMIN_VERSION = 'v12';
 
 // Fouten nooit stil laten vallen: toon ze als melding onderin
 function showError(msg) {
