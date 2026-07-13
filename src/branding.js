@@ -113,6 +113,50 @@ export function swapHolderImage(holder, imageLike) {
   }
 }
 
+/**
+ * Logo-canvas voor de pilaar-logoband. De band toont het 426×191-canvas
+ * GEROTEERD (canvas-x = verticaal op de band) en met verschillende schaal per
+ * as: canvas-x beslaat ~40,1 wereld-eenheden (bandhoogte), canvas-y ~7,2
+ * (bandbreedte). Het logo wordt daarom voorvervormd getekend, zodat het ná
+ * de mapping exact de originele verhouding heeft — gecentreerd in beide
+ * richtingen (dus in het verticale midden van de band).
+ */
+function pillarBandLogoCanvas(logoImg, w = 426, h = 191, pad = 0.05) {
+  const BAND_H_WORLD = 40.1; // verticaal op de pilaar (canvas-x-as)
+  const BAND_W_WORLD = 7.2;  // horizontaal (canvas-y-as)
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const ctx = c.getContext('2d');
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  const pxPerWorldX = w / BAND_H_WORLD;  // langs de band (verticaal)
+  const pxPerWorldY = h / BAND_W_WORLD;  // dwars op de band
+  const maxAlong = BAND_H_WORLD * (1 - pad * 2);
+  const maxAcross = BAND_W_WORLD * (1 - pad * 2);
+  const lw = logoImg.width, lh = logoImg.height;
+  if (lw >= lh) {
+    // liggend logo → gedraaid op de band (verticaal lezend, zoals het
+    // NBC-origineel): logo-breedte langs de band, hoogte dwars
+    const s = Math.min(maxAlong / lw, maxAcross / lh);
+    const drawW = lw * s * pxPerWorldX;
+    const drawH = lh * s * pxPerWorldY;
+    ctx.drawImage(logoImg, (w - drawW) / 2, (h - drawH) / 2, drawW, drawH);
+  } else {
+    // staand logo → rechtop op de band: logo-hoogte langs de band,
+    // breedte dwars (getekend in het gedraaide stelsel, zodat het na de
+    // band-rotatie rechtop staat)
+    const s = Math.min(maxAlong / lh, maxAcross / lw);
+    const destA = lw * s * pxPerWorldY;  // dwars (canvas-y)
+    const destB = lh * s * pxPerWorldX;  // langs (canvas-x)
+    ctx.save();
+    ctx.translate(0, h);
+    ctx.rotate(-Math.PI / 2);
+    ctx.drawImage(logoImg, (h - destA) / 2, (w - destB) / 2, destA, destB);
+    ctx.restore();
+  }
+  return c;
+}
+
 function roleFor(name) {
   for (const r of SCREEN_ROLES) if (r.pattern.test(name)) return r.role;
   return null;
@@ -979,7 +1023,7 @@ export async function applyBranding(app, config = {}) {
       if (a.holder === ghHolder && ghContent) {
         swapHolderImage(a.holder, ghContent);
       } else {
-        swapHolderImage(a.holder, makeLogoCanvas(bandLogo, a.width || 426, a.height || 191, 0.02));
+        swapHolderImage(a.holder, pillarBandLogoCanvas(bandLogo, a.width || 426, a.height || 191));
       }
       result.swapped.push({ asset: a.name, role: 'pilaren' });
     }
