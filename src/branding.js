@@ -1046,6 +1046,129 @@ function applyPillarBandPose(app, skipPlane = null, pos = 'midden') {
 }
 
 /* ------------------------------------------------------------------ *
+ *  Grand Hall: volledige theateropstelling (congres-scène)            *
+ * ------------------------------------------------------------------ */
+
+/**
+ * Vult de Grand Hall met een volledige theateropstelling: de bestaande
+ * stoelkolommen (elk 10 stoelen breed) worden naar achteren doorgetrokken
+ * tot de achterwand, en de catering in het middenschip (Food + Drinks,
+ * hoge tafels) plus het scheidingsgordijn gaan uit.
+ *
+ * Werkt via het Spline-datakanaal: nieuwe rij-instances worden met
+ * scene.updateTreeByOp (op-type 7) toegevoegd en daarna met
+ * expandInstanceChildren geëxpandeerd — regulier klonen van three.js-nodes
+ * rendert niet (de runtime bouwt render-items uit z'n eigen data-graph).
+ * Alleen beschikbaar in de congres-scène (daar staan de stoelcomponenten in).
+ */
+export function applyGrandHallFullTheater(app) {
+  const scene = app._scene;
+  const sam = app._sharedAssetsManager;
+  if (!scene || !sam || typeof scene.updateTreeByOp !== 'function') return 0;
+
+  let ghCongres = null;
+  scene.traverse((o) => {
+    if (!ghCongres && (o.name || '').trim() === 'Congres' &&
+        o.parent && (o.parent.name || '').trim() === 'Grand Hall') ghCongres = o;
+  });
+  if (!ghCongres) return 0; // geen congres-scène
+
+  // middenschip leegmaken: catering en scheidingsgordijn uit
+  for (const naam of ['Food + Drinks', 'Hoge Ronde Tafels + Stoelen', 'Gordijn']) {
+    const g = ghCongres.children.find((c) => (c.name || '').trim() === naam);
+    if (g) g.visible = false;
+  }
+
+  const grid = ghCongres.children.find((c) => (c.name || '') === 'Stoelen Grid podium');
+  if (!grid) return 0;
+
+  // alle bestaande stoelenrijen (10-stoels rij-instances) verzamelen
+  const rows = [];
+  grid.traverse((o) => {
+    if (o.data && o.data.type === 'Instance' && /rij stoelen/i.test(o.data.name || o.name || '')) rows.push(o);
+  });
+  if (!rows.length) return 0;
+
+  // groepeer per kolom op het werkelijke stoelen-zwaartepunt (bbox-centrum);
+  // node-origins liggen nl. niet op de stoelen zelf
+  const rowBox = (o) => {
+    const min = { x: Infinity, z: Infinity }, max = { x: -Infinity, z: -Infinity };
+    o.updateWorldMatrix(true, true);
+    o.traverse((m) => {
+      if (!m.isMesh || !m.geometry) return;
+      if (!m.geometry.boundingBox) m.geometry.computeBoundingBox();
+      const bb = m.geometry.boundingBox;
+      const e = m.matrixWorld.elements;
+      for (const x of [bb.min.x, bb.max.x]) for (const y of [bb.min.y, bb.max.y]) for (const z of [bb.min.z, bb.max.z]) {
+        const wx = e[0] * x + e[4] * y + e[8] * z + e[12];
+        const wz = e[2] * x + e[6] * y + e[10] * z + e[14];
+        min.x = Math.min(min.x, wx); max.x = Math.max(max.x, wx);
+        min.z = Math.min(min.z, wz); max.z = Math.max(max.z, wz);
+      }
+    });
+    return { cx: (min.x + max.x) / 2, minZ: min.z, maxZ: max.z };
+  };
+  const worldPos = (o) => { o.updateWorldMatrix(true, false); const e = o.matrixWorld.elements; return { x: e[12], y: e[13], z: e[14] }; };
+  const columns = new Map();
+  for (const r of rows) {
+    const box = rowBox(r);
+    if (!isFinite(box.cx)) continue;
+    const key = Math.round(box.cx / 80); // kolommen (±139 breed) liggen ±170 uit elkaar
+    const cur = columns.get(key);
+    if (!cur || box.minZ < cur.box.minZ) columns.set(key, { row: r, box });
+  }
+
+  const ROW_PITCH = 18;        // wereldafstand tussen rijen (gemeten)
+  const BACK_LIMIT = 310;      // vrije zone bij de achterwand (muur z≈262)
+  const AISLE_EVERY = 10;      // dwarsgangpad na elke 10 nieuwe rijen
+  const AISLE_EXTRA = 14;
+
+  // Vector3-klasse van de runtime hergebruiken via een bestaand object
+  const V3 = Object.getPrototypeOf(rows[0].position).constructor;
+  let added = 0;
+  const errors = [];
+  for (const { row, box } of columns.values()) {
+    const parent = row.parent;
+    if (!parent || !parent.uuid) continue;
+    parent.updateWorldMatrix(true, false);
+    const inv = parent.matrixWorld.clone().invert();
+    const base = worldPos(row);
+    const frontOffset = base.z - box.minZ; // origin t.o.v. voorkant stoelen
+    for (let k = 1; ; k++) {
+      const dz = ROW_PITCH + (k - 1) * ROW_PITCH + Math.floor((k - 1) / AISLE_EVERY) * AISLE_EXTRA;
+      if (box.minZ - dz < BACK_LIMIT) break;
+      const world = new V3(base.x, base.y, base.z - dz);
+      const local = world.applyMatrix4(inv);
+      const data = JSON.parse(JSON.stringify(row.data));
+      data.name = 'GH theaterrij extra';
+      data.position = [local.x, local.y, local.z];
+      const op = {
+        path: [], type: 7,
+        id: (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2)),
+        parent: parent.uuid,
+        localIndex: parent.children.length,
+        data,
+        children: [],
+      };
+      try {
+        scene.updateTreeByOp(op, sam);
+        const node = scene.find(op.id);
+        if (node && typeof node.expandInstanceChildren === 'function') {
+          node.expandInstanceChildren({ scene, shared: sam });
+        }
+        added++;
+      } catch (e) {
+        errors.push(String((e && e.message) || e));
+        break; // kolom overslaan bij onverwachte runtime-wijzigingen
+      }
+    }
+  }
+  if (errors.length) console.warn('theateropstelling: ' + errors.length + ' rij(en) overgeslagen:', errors[0]);
+  if (app.requestRender) app.requestRender();
+  return added;
+}
+
+/* ------------------------------------------------------------------ *
  *  Hoofd-API                                                          *
  * ------------------------------------------------------------------ */
 
@@ -1064,8 +1187,10 @@ function applyPillarBandPose(app, skipPlane = null, pos = 'midden') {
  *   eventhall: { decor: 'verloop'|'effen1'|'effen2'|'zwart'|'custom', image?,
  *              logoSpots?, logoImage? } — logoImage: eigen logo (URL/data-URI)
  *              voor de plekken op de decorwand, anders het gewone logo
- *   grandhall: { mode: 'kleur'|'zwart', image?, colors?, logoImage? } —
- *              middenscherm (16:9);
+ *   grandhall: { mode: 'kleur'|'zwart', image?, colors?, logoImage?,
+ *              fullTheater? } — middenscherm (16:9);
+ *              fullTheater: true → volledige theateropstelling in de hele
+ *              Grand Hall (alleen congres-scène; zie applyGrandHallFullTheater);
  *              colors: { primary, secondary } — eigen kleuren voor het Grand
  *              Hall-decor (middenscherm-verloop + de 2 wanden ernaast) in
  *              plaats van de huisstijlkleuren;
@@ -1201,6 +1326,11 @@ export async function applyBranding(app, config = {}) {
   // 6. opstellingen per hal aan/uit
   if (config.halls && typeof config.halls === 'object') {
     result.halls = setHallVisibility(app, config.halls);
+  }
+
+  // 6b. Grand Hall: volledige theateropstelling (alleen congres-scène)
+  if (grandhallCfg.fullTheater) {
+    result.ghTheaterRows = applyGrandHallFullTheater(app);
   }
 
   if (primary && config.lights === true && app._scene) {

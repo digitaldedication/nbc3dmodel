@@ -140,6 +140,7 @@
       <span class="filerow"><input type="file" id="img-grandhall" accept="image/*"><button type="button" class="clearfile" data-for="img-grandhall" title="Verwijderen" aria-label="Upload verwijderen">×</button></span>
       <label for="logo-grandhall">Eigen logo voor het middenscherm (anders: het gewone logo)</label>
       <span class="filerow"><input type="file" id="logo-grandhall" accept="image/png,image/svg+xml,image/webp"><button type="button" class="clearfile" data-for="logo-grandhall" title="Verwijderen" aria-label="Upload verwijderen">×</button></span>
+      <label class="inline switch" style="margin-top:10px"><input type="checkbox" id="gh-theater"> Volledige theateropstelling (stoelen door de hele zaal — alleen bij congres)</label>
       <label class="inline switch" style="margin-top:10px"><input type="checkbox" id="gh-eigen-kleuren"> Eigen kleuren voor het Grand Hall-decor</label>
       <div id="gh-kleuren-row" class="colors" style="display:none">
         <div>
@@ -193,7 +194,7 @@
 
 <script type="module">
 const $ = (id) => document.getElementById(id);
-const ADMIN_VERSION = 'v18';
+const ADMIN_VERSION = 'v19';
 
 // Informatiepunten die standaard UIT staan bij een nieuw event
 // (splineName-sleutels uit src/tooltip-content.js).
@@ -310,6 +311,7 @@ async function buildConfig() {
         ? { primary: $('gh-kleur1').value, secondary: $('gh-kleur2').value }
         : undefined,
       logoImage: uploads.logoGrandhall || undefined,
+      fullTheater: $('gh-theater').checked || undefined,
     },
     scene,
     scenes: $('allowSwitch').checked ? undefined : [scene],
@@ -422,6 +424,7 @@ function loadIntoForm(ev) {
   $('eh-logospots').value = eh.logo === false ? '0' : String(eh.logoSpots || 2);
   const ghm = (c.grandhall && c.grandhall.mode) || 'kleur';
   document.querySelector(`input[name=ghmode][value=${ghm}]`).checked = true;
+  $('gh-theater').checked = !!(c.grandhall && c.grandhall.fullTheater);
   const ghc = (c.grandhall && c.grandhall.colors) || null;
   $('gh-eigen-kleuren').checked = !!(ghc && ghc.primary);
   if (ghc && ghc.primary) {
