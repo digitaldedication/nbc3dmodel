@@ -67,7 +67,7 @@ const url = (p) => new URL(p, BASE).href;
 // Cache-busting op de eigen modules: browsers cachen ES-modules los van de
 // pagina, waardoor een hard refresh soms een verouderde branding.js liet
 // draaien. Bump APP_VERSION bij elke wijziging aan src/*.
-const APP_VERSION = 'v19';
+const APP_VERSION = 'v20';
 let Application, applyBranding, DECOR_PRESETS, initTooltips;
 try {
   ({ Application } = await import(url('vendor/spline/runtime.js')));
@@ -110,11 +110,29 @@ async function loadConfig() {
     return res.json();
   }
   const hash = new URLSearchParams(location.hash.slice(1));
-  const packed = hash.get('c');
-  if (packed) {
-    const b64 = packed.replace(/-/g, '+').replace(/_/g, '/');
-    const json = new TextDecoder().decode(Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0)));
-    return JSON.parse(json);
+  const packedZ = hash.get('z');   // gecomprimeerde link (deflate)
+  const packedC = hash.get('c');   // oude ongecomprimeerde link
+  if (packedZ || packedC) {
+    const TRUNCATED = 'Deze link is onvolledig — hij is waarschijnlijk afgekapt bij het ' +
+      'kopiëren, plakken of delen (lange links worden door sommige apps en de adresbalk ingekort). ' +
+      'Open de link door erop te klikken, maak in de beheeromgeving een nieuwe deel-link, ' +
+      'of gebruik de vaste link (?e=TOKEN) met het config-bestand op de server.';
+    try {
+      const packed = packedZ || packedC;
+      const b64 = packed.replace(/-/g, '+').replace(/_/g, '/');
+      const bytes = Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0));
+      let json;
+      if (packedZ) {
+        const ds = new DecompressionStream('deflate-raw');
+        const buf = await new Response(new Blob([bytes]).stream().pipeThrough(ds)).arrayBuffer();
+        json = new TextDecoder().decode(buf);
+      } else {
+        json = new TextDecoder().decode(bytes);
+      }
+      return JSON.parse(json);
+    } catch (e) {
+      throw new Error(TRUNCATED);
+    }
   }
   return {}; // ongebrand model
 }

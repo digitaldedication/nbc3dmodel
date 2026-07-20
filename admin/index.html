@@ -194,7 +194,7 @@
 
 <script type="module">
 const $ = (id) => document.getElementById(id);
-const ADMIN_VERSION = 'v19';
+const ADMIN_VERSION = 'v20';
 
 // Informatiepunten die standaard UIT staan bij een nieuw event
 // (splineName-sleutels uit src/tooltip-content.js).
@@ -245,7 +245,12 @@ function fileToDataUri(file, maxW = 1600) {
       c.width = Math.round(img.width * s);
       c.height = Math.round(img.height * s);
       c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-      resolve(c.toDataURL(file.type === 'image/jpeg' ? 'image/jpeg' : 'image/png'));
+      // WebP (met transparantie) is vaak vele malen kleiner dan PNG — dat
+      // houdt de deel-links kort. Browsers zonder WebP-encoder (Safari)
+      // geven dan een png-data-URI terug; dan de kleinste van de twee.
+      const fallback = c.toDataURL(file.type === 'image/jpeg' ? 'image/jpeg' : 'image/png', 0.85);
+      const webp = c.toDataURL('image/webp', 0.9);
+      resolve(webp.startsWith('data:image/webp') && webp.length < fallback.length ? webp : fallback);
     };
     img.onerror = () => reject(new Error('Afbeelding niet leesbaar'));
     img.src = URL.createObjectURL(file);
@@ -319,9 +324,7 @@ async function buildConfig() {
   };
 }
 
-function packConfig(cfg) {
-  const json = JSON.stringify(cfg);
-  const bytes = new TextEncoder().encode(json);
+function bytesToB64url(bytes) {
   // in blokken omzetten: één grote spread geeft bij grote afbeeldingen
   // "Maximum call stack size exceeded"
   let bin = '';
@@ -332,7 +335,24 @@ function packConfig(cfg) {
   return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-function hashLink(cfg) { return VIEWER + '#c=' + packConfig(cfg); }
+/** Config → gecomprimeerde base64url (deflate): houdt deel-links zo kort
+ *  mogelijk; te lange URL's raken afgekapt bij kopiëren/plakken/delen. */
+async function packConfig(cfg) {
+  const bytes = new TextEncoder().encode(JSON.stringify(cfg));
+  try {
+    const ds = new CompressionStream('deflate-raw');
+    const buf = await new Response(new Blob([bytes]).stream().pipeThrough(ds)).arrayBuffer();
+    return { param: 'z', packed: bytesToB64url(new Uint8Array(buf)) };
+  } catch (e) {
+    // oude browser zonder CompressionStream: ongecomprimeerde legacy-link
+    return { param: 'c', packed: bytesToB64url(bytes) };
+  }
+}
+
+async function hashLink(cfg) {
+  const { param, packed } = await packConfig(cfg);
+  return VIEWER + '#' + param + '=' + packed;
+}
 
 function randomToken(len = 22) {
   const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -372,14 +392,14 @@ const saveEvents = (list) => {
 };
 let editingToken = null;
 
-function renderEvents() {
+async function renderEvents() {
   const list = loadEvents();
   const host = $('events');
   host.innerHTML = list.length ? '' : '<p class="hint">Nog geen events opgeslagen.</p>';
   for (const ev of list) {
     const div = document.createElement('div');
     div.className = 'event';
-    const link = hashLink(ev.config);
+    const link = await hashLink(ev.config);
     div.innerHTML = `<b></b><span class="tok"></span><div class="row"></div>`;
     div.querySelector('b').textContent = ev.name || '(zonder naam)';
     div.querySelector('.tok').textContent = 'token: ' + ev.token;
@@ -472,8 +492,8 @@ $('save').addEventListener('click', async () => {
     }
     saveEvents(list);
     renderEvents();
-    const link = hashLink(cfg);
-    if (link.length > 500000) {
+    const link = await hashLink(cfg);
+    if (link.length > 250000) {
       toast('Opgeslagen. Let op: de deel-link is erg groot door de uploads — gebruik de vaste link + config-bestand.');
     } else {
       try { await navigator.clipboard.writeText(link); toast('Opgeslagen — deel-link staat op je klembord'); }

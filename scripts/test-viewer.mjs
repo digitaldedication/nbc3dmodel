@@ -1,6 +1,7 @@
 import { chromium } from 'playwright';
 import { spawn } from 'node:child_process';
 import { mkdirSync, readFileSync } from 'node:fs';
+import { deflateRawSync } from 'node:zlib';
 
 mkdirSync('scene-inspection', { recursive: true });
 const server = spawn('node', ['scripts/serve.mjs'], { stdio: 'ignore' });
@@ -19,7 +20,7 @@ const config = {
   pillarLogo: 'data:image/png;base64,' + readFileSync('scene-inspection/testpilaarlogo.png').toString('base64'),
   halls: { eventhall: true, grandhall: true },
 };
-const b64 = Buffer.from(JSON.stringify(config)).toString('base64url');
+const b64 = deflateRawSync(Buffer.from(JSON.stringify(config))).toString('base64url');
 
 const browser = await chromium.launch({
   executablePath: process.env.CHROMIUM_PATH || '/opt/pw-browsers/chromium',
@@ -48,7 +49,7 @@ try {
   page.on('console', (m) => { if (m.type() === 'error') console.log('console:', m.text().slice(0, 200)); });
 
   // simuleer GitHub Pages-subpad
-  await page.goto(`http://127.0.0.1:8787/nbc3dmodel/viewer/#c=${b64}`);
+  await page.goto(`http://127.0.0.1:8787/nbc3dmodel/viewer/#z=${b64}`);
   await page.waitForSelector('#status.hidden', { timeout: 240000 });
   await new Promise((r) => setTimeout(r, 14000));
   await page.screenshot({ path: 'scene-inspection/viewer-branded.png' });
