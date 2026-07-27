@@ -179,13 +179,29 @@
       <div id="tooltip-toggles"><p class="hint">Laden…</p></div>
     </fieldset>
 
+    <fieldset>
+      <legend>Korte deel-links</legend>
+      <p class="hint" style="margin-top:0">Zonder publiceren zit het hele event (inclusief logo's en beelden) ín de link — die wordt dan duizenden tekens lang. Met een sleutel zet de beheeromgeving het event op de server en is de link kort: <code>…/viewer/?e=TOKEN</code>.</p>
+      <label class="inline switch"><input type="checkbox" id="pub-aan"> Korte links gebruiken (publiceren op de server)</label>
+      <div id="pub-velden" style="display:none">
+        <label for="pub-token">GitHub-sleutel (fine-grained token, Contents: read &amp; write)</label>
+        <input type="password" id="pub-token" placeholder="github_pat_…" autocomplete="off">
+        <p class="hint">De sleutel blijft in deze browser en komt nooit in een deel-link. Maak hem aan via GitHub → Settings → Developer settings → Fine-grained tokens, met alleen toegang tot deze ene repository.</p>
+        <button type="button" class="ghost" id="pub-vergeet">Sleutel uit deze browser wissen</button>
+        <label for="pub-repo">Repository en branch</label>
+        <input type="text" id="pub-repo" placeholder="eigenaar/repo">
+        <input type="text" id="pub-branch" placeholder="branch" style="margin-top:6px">
+      </div>
+      <p class="hint">Geen sleutel? Gebruik dan per event de knop "Config downloaden + uploadpagina" — dan plaats je het bestand handmatig in <code>configs/</code>.</p>
+    </fieldset>
+
     <button class="primary" id="save">Event opslaan + link maken</button>
     <p class="hint">De preview rechts ververst automatisch na elke wijziging.</p>
 
     <fieldset style="margin-top:14px">
       <legend>Opgeslagen events</legend>
       <div id="events"><p class="hint">Nog geen events opgeslagen.</p></div>
-      <p class="hint">Links blijven werken zolang het event hier bewaard is (opgeslagen in deze browser). "Deel-link" is zelfstandig en werkt direct; de "vaste link" (<code>?e=TOKEN</code>) vereist dat het gedownloade config-bestand in <code>configs/</code> op de server staat en blijft bij bewerken hetzelfde.</p>
+      <p class="hint">De <b>korte link</b> (<code>?e=TOKEN</code>) is het prettigst om te delen en blijft bij bewerken hetzelfde — daarvoor moet het event gepubliceerd zijn (server heeft na publiceren ongeveer een minuut nodig). De <b>lange link</b> bevat het hele event en werkt zonder server, maar wordt met uploads duizenden tekens lang en kan bij kopiëren/plakken afgekapt raken. Events blijven in deze browser bewaard om ze later te bewerken.</p>
     </fieldset>
   </aside>
   <section id="preview"><iframe id="frame" title="Voorbeeld"></iframe></section>
@@ -194,7 +210,7 @@
 
 <script type="module">
 const $ = (id) => document.getElementById(id);
-const ADMIN_VERSION = 'v20';
+const ADMIN_VERSION = 'v21';
 
 // Informatiepunten die standaard UIT staan bij een nieuw event
 // (splineName-sleutels uit src/tooltip-content.js).
@@ -227,6 +243,107 @@ function projectBase() {
 }
 const VIEWER = projectBase() + 'viewer/';
 const STORE_KEY = 'nbc3d-events-v1';
+const PUBLISH_KEY = 'nbc3d-publish-v1';
+
+/* ---------- publiceren: config als bestand op de server ---------- *
+ * Een deel-link met uploads erin wordt duizenden tekens lang. Door de
+ * config als configs/TOKEN.json naar de repository te schrijven blijft de
+ * link kort (…/viewer/?e=TOKEN). De sleutel staat alleen in deze browser. */
+
+/** Standaard repo/branch afleiden uit de Pages-URL (eigenaar.github.io/repo). */
+function guessRepo() {
+  const m = location.hostname.match(/^([^.]+)\.github\.io$/);
+  const repo = location.pathname.split('/').filter(Boolean)[0] || '';
+  return m && repo ? `${m[1]}/${repo}` : '';
+}
+
+function loadPublishSettings() {
+  let s = {};
+  try { s = JSON.parse(localStorage.getItem(PUBLISH_KEY)) || {}; } catch (e) { /* leeg */ }
+  return {
+    on: !!s.on,
+    token: s.token || '',
+    repo: s.repo || guessRepo(),
+    branch: s.branch || 'claude/nice-bohr-ynfyso',
+  };
+}
+
+function savePublishSettings() {
+  const s = {
+    on: $('pub-aan').checked,
+    token: $('pub-token').value.trim(),
+    repo: $('pub-repo').value.trim(),
+    branch: $('pub-branch').value.trim(),
+  };
+  try { localStorage.setItem(PUBLISH_KEY, JSON.stringify(s)); } catch (e) { /* privémodus */ }
+  return s;
+}
+
+const publishReady = () => {
+  const s = loadPublishSettings();
+  return s.on && s.token && /^[^/]+\/[^/]+$/.test(s.repo) && s.branch;
+};
+
+/** JSON-tekst → standaard base64 (GitHub Contents API), blokgewijs. */
+function textToB64(text) {
+  const bytes = new TextEncoder().encode(text);
+  let bin = '';
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  return btoa(bin);
+}
+
+/** Schrijf configs/TOKEN.json naar de repository. Geeft de korte link terug. */
+async function publishConfig(token, cfg) {
+  const s = loadPublishSettings();
+  if (!publishReady()) throw new Error('Vul eerst de sleutel, repository en branch in bij "Korte deel-links".');
+  const path = `configs/${token}.json`;
+  const api = `https://api.github.com/repos/${s.repo}/contents/${path}`;
+  const headers = {
+    Authorization: 'Bearer ' + s.token,
+    Accept: 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+  };
+  // bestaat het bestand al? dan is de sha nodig om te overschrijven
+  let sha;
+  const head = await fetch(`${api}?ref=${encodeURIComponent(s.branch)}`, { headers, cache: 'no-store' });
+  if (head.ok) sha = (await head.json()).sha;
+  else if (head.status === 401 || head.status === 403) throw new Error('De sleutel wordt geweigerd (401/403). Controleer of het token nog geldig is en Contents: read & write heeft op deze repository.');
+  else if (head.status !== 404) throw new Error('Server antwoordde met ' + head.status + ' bij het opzoeken van ' + path);
+
+  const res = await fetch(api, {
+    method: 'PUT',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      message: `Config voor event ${token}`,
+      content: textToB64(JSON.stringify(cfg, null, 2)),
+      branch: s.branch,
+      ...(sha ? { sha } : {}),
+    }),
+  });
+  if (!res.ok) {
+    let detail = '';
+    try { detail = (await res.json()).message || ''; } catch (e) { /* geen json */ }
+    throw new Error(`Publiceren mislukt (${res.status}${detail ? ': ' + detail : ''})`);
+  }
+  return shortLink(token);
+}
+
+const shortLink = (token) => VIEWER + '?e=' + token;
+
+/** Handmatige route zonder sleutel: bestand downloaden + uploadpagina openen. */
+function manualPublish(token, cfg) {
+  const s = loadPublishSettings();
+  const blob = new Blob([JSON.stringify(cfg, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = token + '.json';
+  a.click();
+  if (/^[^/]+\/[^/]+$/.test(s.repo)) {
+    window.open(`https://github.com/${s.repo}/upload/${encodeURIComponent(s.branch)}/configs`, '_blank', 'noopener');
+  }
+  toast('Bestand gedownload — sleep het in de GitHub-uploadpagina (map configs/)');
+}
 
 function toast(msg) {
   const t = $('toast');
@@ -384,6 +501,28 @@ function syncGhKleuren() {
 }
 $('gh-eigen-kleuren').addEventListener('change', syncGhKleuren);
 
+/* publiceer-instellingen: velden vullen, wijzigingen bewaren */
+function syncPublishFields() {
+  $('pub-velden').style.display = $('pub-aan').checked ? 'block' : 'none';
+}
+(function initPublish() {
+  const s = loadPublishSettings();
+  $('pub-aan').checked = s.on;
+  $('pub-token').value = s.token;
+  $('pub-repo').value = s.repo;
+  $('pub-branch').value = s.branch;
+  syncPublishFields();
+})();
+for (const id of ['pub-aan', 'pub-token', 'pub-repo', 'pub-branch']) {
+  $(id).addEventListener('change', () => { savePublishSettings(); syncPublishFields(); renderEvents(); });
+}
+$('pub-vergeet').addEventListener('click', () => {
+  $('pub-token').value = '';
+  savePublishSettings();
+  toast('Sleutel gewist uit deze browser');
+  renderEvents();
+});
+
 /* ---------- opgeslagen events ---------- */
 const loadEvents = () => { try { return JSON.parse(localStorage.getItem(STORE_KEY)) || []; } catch { return []; } };
 const saveEvents = (list) => {
@@ -399,23 +538,39 @@ async function renderEvents() {
   for (const ev of list) {
     const div = document.createElement('div');
     div.className = 'event';
-    const link = await hashLink(ev.config);
+    const short = shortLink(ev.token);
+    const longLink = await hashLink(ev.config);
+    const primaryLink = ev.published ? short : longLink;
     div.innerHTML = `<b></b><span class="tok"></span><div class="row"></div>`;
     div.querySelector('b').textContent = ev.name || '(zonder naam)';
-    div.querySelector('.tok').textContent = 'token: ' + ev.token;
+    div.querySelector('.tok').textContent = ev.published
+      ? `korte link actief · ${ev.token}`
+      : `token: ${ev.token} · lange link: ${longLink.length.toLocaleString('nl-NL')} tekens`;
     const row = div.querySelector('.row');
     const mk = (label, fn) => { const b = document.createElement('button'); b.textContent = label; b.addEventListener('click', fn); row.appendChild(b); };
     const open = document.createElement('a');
-    open.className = 'btn'; open.textContent = 'Open'; open.href = link; open.target = '_blank';
+    open.className = 'btn'; open.textContent = 'Open'; open.href = primaryLink; open.target = '_blank';
     row.appendChild(open);
-    mk('Kopieer deel-link', async () => { await navigator.clipboard.writeText(link); toast('Deel-link gekopieerd'); });
-    mk('Kopieer vaste link', async () => { await navigator.clipboard.writeText(VIEWER + '?e=' + ev.token); toast('Vaste link gekopieerd (vereist config-bestand op server)'); });
-    mk('Download config', () => {
-      const blob = new Blob([JSON.stringify(ev.config, null, 2)], { type: 'application/json' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob); a.download = ev.token + '.json'; a.click();
-      toast('Plaats ' + ev.token + '.json in configs/ op de server');
-    });
+    if (ev.published) {
+      mk('Kopieer korte link', async () => { await navigator.clipboard.writeText(short); toast('Korte link gekopieerd: ' + short); });
+    }
+    if (publishReady()) {
+      mk(ev.published ? 'Opnieuw publiceren' : 'Publiceer korte link', async () => {
+        try {
+          toast('Publiceren…');
+          await publishConfig(ev.token, ev.config);
+          const list2 = loadEvents();
+          const hit = list2.find((x) => x.token === ev.token);
+          if (hit) { hit.published = true; saveEvents(list2); }
+          try { await navigator.clipboard.writeText(short); } catch (e) { /* zonder klembord */ }
+          toast('Gepubliceerd — korte link staat op je klembord (even wachten tot de server bijwerkt)');
+          renderEvents();
+        } catch (e) { showError(e.message || String(e)); }
+      });
+    } else {
+      mk('Config downloaden + uploadpagina', () => manualPublish(ev.token, ev.config));
+    }
+    mk('Kopieer lange link', async () => { await navigator.clipboard.writeText(longLink); toast('Lange link gekopieerd (' + longLink.length.toLocaleString('nl-NL') + ' tekens)'); });
     mk('Bewerken', () => loadIntoForm(ev));
     mk('Verwijderen', () => {
       if (!confirm('Event "' + (ev.name || ev.token) + '" verwijderen?')) return;
@@ -491,10 +646,25 @@ $('save').addEventListener('click', async () => {
       list.unshift({ token, name: cfg.eventName || '', config: cfg, updatedAt: Date.now() });
     }
     saveEvents(list);
+
+    // Met publiceren aan: config naar de server en de KORTE link kopiëren.
+    if (publishReady()) {
+      toast('Opgeslagen — publiceren…');
+      await publishConfig(token, cfg);
+      const list2 = loadEvents();
+      const hit = list2.find((x) => x.token === token);
+      if (hit) { hit.published = true; saveEvents(list2); }
+      renderEvents();
+      const short = shortLink(token);
+      try { await navigator.clipboard.writeText(short); toast('Korte link op je klembord: ' + short); }
+      catch { toast('Gepubliceerd — korte link: ' + short); }
+      return;
+    }
+
     renderEvents();
     const link = await hashLink(cfg);
-    if (link.length > 250000) {
-      toast('Opgeslagen. Let op: de deel-link is erg groot door de uploads — gebruik de vaste link + config-bestand.');
+    if (link.length > 20000) {
+      toast(`Opgeslagen. De link is ${link.length.toLocaleString('nl-NL')} tekens door de uploads — zet "Korte deel-links" aan voor een korte link.`);
     } else {
       try { await navigator.clipboard.writeText(link); toast('Opgeslagen — deel-link staat op je klembord'); }
       catch { toast('Opgeslagen — kopieer de deel-link via de lijst hieronder'); }
