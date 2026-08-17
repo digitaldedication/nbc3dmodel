@@ -91,8 +91,25 @@ const badgeEl = document.getElementById('badge');
 const scenesEl = document.getElementById('scenes');
 const stage = document.getElementById('stage');
 
+/** Publiceer-adres voor korte links die niet in de repository staan.
+ *  Bron 1: de link zelf (&s=host[/pad], gezet door de beheeromgeving).
+ *  Bron 2: configs/endpoint.json met {"url": "https://…"} — dan hoeft het
+ *  adres niet in elke link mee. Levert een https-basis-URL of null. */
+async function publishEndpoint(fromLink) {
+  if (fromLink && /^[a-z0-9-]+(\.[a-z0-9-]+)+(\/[A-Za-z0-9._~-]+)*\/?$/i.test(fromLink)) {
+    return 'https://' + fromLink.replace(/\/+$/, '');
+  }
+  try {
+    const res = await fetch(url('configs/endpoint.json'), { cache: 'no-store' });
+    if (!res.ok) return null;
+    const cfg = await res.json();
+    if (typeof cfg.url === 'string' && /^https:\/\//.test(cfg.url)) return cfg.url.replace(/\/+$/, '');
+  } catch (e) { /* geen publiceer-adres ingesteld */ }
+  return null;
+}
+
 /** Config laden: #preview (sessionStorage, voor de beheeromgeving),
- *  ?e=TOKEN → configs/TOKEN.json, of #c=<base64url json>. */
+ *  ?e=TOKEN → configs/TOKEN.json of het publiceer-adres, of #c=<base64url json>. */
 async function loadConfig() {
   if (location.hash === '#preview') {
     try {
@@ -106,11 +123,18 @@ async function loadConfig() {
   if (token) {
     if (!/^[A-Za-z0-9_-]{4,64}$/.test(token)) throw new Error('Ongeldige link.');
     const res = await fetch(url(`configs/${token}.json`), { cache: 'no-store' });
-    if (!res.ok) throw new Error(
+    if (res.ok) return res.json();
+    // niet in de repository → eventueel eigen publiceer-adres proberen
+    const endpoint = await publishEndpoint(params.get('s'));
+    if (endpoint) {
+      const remote = await fetch(`${endpoint}?e=${encodeURIComponent(token)}`, { cache: 'no-store' })
+        .catch(() => null);
+      if (remote && remote.ok) return remote.json();
+    }
+    throw new Error(
       'Deze 3D plattegrond is nog niet beschikbaar. Is het event net gepubliceerd? ' +
       'De server heeft daarna ongeveer een minuut nodig — probeer het over een minuut nog eens. ' +
-      `(Config "configs/${token}.json" niet gevonden.)`);
-    return res.json();
+      `(Config "${token}" niet gevonden.)`);
   }
   const hash = new URLSearchParams(location.hash.slice(1));
   const packedZ = hash.get('z');   // gecomprimeerde link (deflate)

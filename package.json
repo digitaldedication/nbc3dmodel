@@ -9,6 +9,8 @@
     "serve": "node scripts/serve.mjs",
     "test:branding": "node scripts/test-branding.mjs",
     "test:viewer": "node scripts/test-viewer.mjs",
+    "test:publish": "node scripts/test-publish.mjs",
+    "test:publish-endpoint": "node scripts/test-publish-endpoint.mjs",
     "inspect": "node scripts/inspect-scene.mjs"
   },
   "repository": {

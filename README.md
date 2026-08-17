@@ -34,6 +34,7 @@ schermcontent, deelbaar via een unieke, niet-herleidbare URL.
 | `src/branding.js` | Branding-module: texture-injectie + kleuren, werkt op `@splinetool/runtime` |
 | `viewer/` | Klantpagina: laadt branding-config via `?e=TOKEN` of `#c=<config>` en toont het gebrande model |
 | `admin/` | Demo-beheeromgeving: kleuren kiezen, logo/beelden uploaden, deelbare link genereren |
+| `worker/` | Optioneel publiceer-adres (Cloudflare Worker) voor korte links zonder GitHub-token |
 | `scripts/` | Lokale server + Playwright-testen (inspectie, branding-PoC, viewer e2e) |
 | `docs/architectuur-analyse.md` | Technische analyse van de bestaande tool |
 
@@ -47,6 +48,12 @@ De app is volledig statisch en draait onder elk (sub)pad, bijv.
 - `…/viewer/#c=…` — zelfstandige deel-link (config in de URL)
 - `…/viewer/?e=TOKEN` — vaste link; vereist `configs/TOKEN.json` in de repo
   (download het bestand in de beheeromgeving en commit het naar `configs/`)
+  of een eigen publiceer-adres (`worker/`)
+
+De beheeromgeving kan die config zelf wegschrijven, op twee manieren:
+met een GitHub-sleutel naar `configs/`, of naar een eigen publiceer-adres
+zonder GitHub-account. Welke wanneer, en hoe je een werkende sleutel maakt in
+een organisatie: zie [`docs/publiceren.md`](docs/publiceren.md).
 
 De Spline-runtime is gevendored in `vendor/spline/` zodat er geen
 `node_modules` nodig is op de server. Let op: GitHub Pages moet de branch

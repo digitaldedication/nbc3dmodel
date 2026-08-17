@@ -1,0 +1,13 @@
+name = "nbc3d-configs"
+main = "worker.js"
+compatibility_date = "2026-01-01"
+
+# KV-namespace voor de event-configs. Maak hem aan met
+#   npx wrangler kv namespace create CONFIGS
+# en zet de id die je terugkrijgt hieronder neer.
+[[kv_namespaces]]
+binding = "CONFIGS"
+id = "VUL_HIER_DE_KV_ID_IN"
+
+# Het gedeelde wachtwoord staat NIET in dit bestand, maar als secret:
+#   npx wrangler secret put PUBLISH_KEY

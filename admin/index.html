@@ -19,7 +19,7 @@
   fieldset { border: 1px solid #e3e7e9; border-radius: 12px; margin: 0 0 14px; padding: 14px; }
   legend { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; padding: 0 6px; }
   label { display: block; font-size: 13px; font-weight: 600; margin: 10px 0 4px; }
-  input[type=text] { width: 100%; padding: 8px 10px; border: 1px solid #cfd6d9; border-radius: 8px; font-size: 14px; }
+  input[type=text], input[type=password], input[type=url] { width: 100%; padding: 8px 10px; border: 1px solid #cfd6d9; border-radius: 8px; font-size: 14px; }
   input[type=color] { width: 52px; height: 34px; padding: 2px; border: 1px solid #cfd6d9; border-radius: 8px; background: #fff; }
   .colors { display: flex; gap: 14px; }
   .colors > div { flex: 1; }
@@ -184,15 +184,32 @@
       <p class="hint" style="margin-top:0">Zonder publiceren zit het hele event (inclusief logo's en beelden) ín de link — die wordt dan duizenden tekens lang. Met een sleutel zet de beheeromgeving het event op de server en is de link kort: <code>…/viewer/?e=TOKEN</code>.</p>
       <label class="inline switch"><input type="checkbox" id="pub-aan"> Korte links gebruiken (publiceren op de server)</label>
       <div id="pub-velden" style="display:none">
-        <label for="pub-token">GitHub-sleutel (fine-grained token, Contents: read &amp; write)</label>
-        <input type="password" id="pub-token" placeholder="github_pat_…" autocomplete="off">
-        <p class="hint">De sleutel blijft in deze browser en komt nooit in een deel-link. Maak hem aan via GitHub → Settings → Developer settings → Fine-grained tokens, met alleen toegang tot deze ene repository.</p>
-        <button type="button" class="ghost" id="pub-vergeet">Sleutel uit deze browser wissen</button>
-        <label for="pub-repo">Repository en branch</label>
-        <input type="text" id="pub-repo" placeholder="eigenaar/repo">
-        <input type="text" id="pub-branch" placeholder="branch" style="margin-top:6px">
+        <label for="pub-methode">Publiceren via</label>
+        <select id="pub-methode" style="width:100%;padding:8px 10px;border:1px solid #cfd6d9;border-radius:8px;font-size:14px;">
+          <option value="github">GitHub (met sleutel)</option>
+          <option value="endpoint">Eigen publiceer-adres (zonder GitHub-account)</option>
+        </select>
+
+        <div id="pub-github">
+          <label for="pub-token">GitHub-sleutel</label>
+          <input type="password" id="pub-token" placeholder="ghp_… of github_pat_…" autocomplete="off">
+          <p class="hint">Twee soorten werken: een <b>classic token</b> (GitHub → Settings → Developer settings → Personal access tokens (classic)) met alleen het vinkje <code>public_repo</code>, of een <b>fine-grained token</b> met Contents: read &amp; write. In een organisatie moet een eigenaar fine-grained tokens eerst toestaan/goedkeuren — lukt dat niet, gebruik dan het classic token. Zie <code>docs/publiceren.md</code>. De sleutel blijft in deze browser en komt nooit in een deel-link.</p>
+          <button type="button" class="ghost" id="pub-vergeet">Sleutel uit deze browser wissen</button>
+          <label for="pub-repo">Repository en branch</label>
+          <input type="text" id="pub-repo" placeholder="eigenaar/repo">
+          <input type="text" id="pub-branch" placeholder="branch" style="margin-top:6px">
+        </div>
+
+        <div id="pub-endpoint-velden" style="display:none">
+          <label for="pub-endpoint">Publiceer-adres</label>
+          <input type="url" id="pub-endpoint" placeholder="https://nbc3d-configs.voorbeeld.workers.dev/" autocomplete="off">
+          <label for="pub-wachtwoord">Gedeeld wachtwoord</label>
+          <input type="password" id="pub-wachtwoord" autocomplete="off">
+          <p class="hint">Geen GitHub-account nodig: iedereen die dit adres en wachtwoord heeft, kan korte links maken — en de link werkt meteen, zonder wachttijd. Opzetten van het adres (gratis, ±10 minuten): zie <code>worker/README.md</code>.</p>
+          <button type="button" class="ghost" id="pub-vergeet-endpoint">Wachtwoord uit deze browser wissen</button>
+        </div>
       </div>
-      <p class="hint">Geen sleutel? Gebruik dan per event de knop "Config downloaden + uploadpagina" — dan plaats je het bestand handmatig in <code>configs/</code>.</p>
+      <p class="hint">Geen sleutel en geen publiceer-adres? Gebruik dan per event de knop "Config downloaden + uploadpagina" — dan plaats je het bestand handmatig in <code>configs/</code>.</p>
     </fieldset>
 
     <button class="primary" id="save">Event opslaan + link maken</button>
@@ -201,7 +218,7 @@
     <fieldset style="margin-top:14px">
       <legend>Opgeslagen events</legend>
       <div id="events"><p class="hint">Nog geen events opgeslagen.</p></div>
-      <p class="hint">De <b>korte link</b> (<code>?e=TOKEN</code>) is het prettigst om te delen en blijft bij bewerken hetzelfde — daarvoor moet het event gepubliceerd zijn (server heeft na publiceren ongeveer een minuut nodig). De <b>lange link</b> bevat het hele event en werkt zonder server, maar wordt met uploads duizenden tekens lang en kan bij kopiëren/plakken afgekapt raken. Events blijven in deze browser bewaard om ze later te bewerken.</p>
+      <p class="hint">De <b>korte link</b> (<code>?e=TOKEN</code>) is het prettigst om te delen en blijft bij bewerken hetzelfde — daarvoor moet het event gepubliceerd zijn (bij publiceren via GitHub heeft de server daarna ongeveer een minuut nodig; via een eigen publiceer-adres werkt de link meteen). De <b>lange link</b> bevat het hele event en werkt zonder server, maar wordt met uploads duizenden tekens lang en kan bij kopiëren/plakken afgekapt raken. Events blijven in deze browser bewaard om ze later te bewerken.</p>
     </fieldset>
   </aside>
   <section id="preview"><iframe id="frame" title="Voorbeeld"></iframe></section>
@@ -247,8 +264,13 @@ const PUBLISH_KEY = 'nbc3d-publish-v1';
 
 /* ---------- publiceren: config als bestand op de server ---------- *
  * Een deel-link met uploads erin wordt duizenden tekens lang. Door de
- * config als configs/TOKEN.json naar de repository te schrijven blijft de
- * link kort (…/viewer/?e=TOKEN). De sleutel staat alleen in deze browser. */
+ * config onder een token weg te schrijven blijft de link kort
+ * (…/viewer/?e=TOKEN). Twee routes:
+ *   'github'   → configs/TOKEN.json in de repository (GitHub-sleutel nodig)
+ *   'endpoint' → eigen publiceer-adres, bijv. een Cloudflare Worker
+ *                (alleen een gedeeld wachtwoord nodig, dus ook bruikbaar
+ *                door collega's zonder GitHub-account; zie worker/).
+ * Sleutel en wachtwoord staan alleen in deze browser. */
 
 /** Standaard repo/branch afleiden uit de Pages-URL (eigenaar.github.io/repo). */
 function guessRepo() {
@@ -262,26 +284,49 @@ function loadPublishSettings() {
   try { s = JSON.parse(localStorage.getItem(PUBLISH_KEY)) || {}; } catch (e) { /* leeg */ }
   return {
     on: !!s.on,
+    method: s.method === 'endpoint' ? 'endpoint' : 'github',
     token: s.token || '',
     repo: s.repo || guessRepo(),
     branch: s.branch || 'claude/nice-bohr-ynfyso',
+    endpoint: s.endpoint || '',
+    endpointKey: s.endpointKey || '',
   };
 }
 
 function savePublishSettings() {
   const s = {
     on: $('pub-aan').checked,
+    method: $('pub-methode').value === 'endpoint' ? 'endpoint' : 'github',
     token: $('pub-token').value.trim(),
     repo: $('pub-repo').value.trim(),
     branch: $('pub-branch').value.trim(),
+    endpoint: $('pub-endpoint').value.trim(),
+    endpointKey: $('pub-wachtwoord').value,
   };
   try { localStorage.setItem(PUBLISH_KEY, JSON.stringify(s)); } catch (e) { /* privémodus */ }
   return s;
 }
 
+/** Publiceer-adres zonder afsluitende slash; leeg als het geen https-URL is. */
+function endpointBase(s = loadPublishSettings()) {
+  try {
+    const u = new URL(s.endpoint);
+    if (u.protocol !== 'https:') return '';
+    return (u.origin + u.pathname).replace(/\/+$/, '');
+  } catch (e) { return ''; }
+}
+
+/** Publiceer-adres zonder "https://" — gaat als &s=… mee in de korte link,
+ *  zodat de viewer weet waar hij de config moet ophalen. */
+function endpointRef(s = loadPublishSettings()) {
+  return endpointBase(s).replace(/^https:\/\//, '');
+}
+
 const publishReady = () => {
   const s = loadPublishSettings();
-  return s.on && s.token && /^[^/]+\/[^/]+$/.test(s.repo) && s.branch;
+  if (!s.on) return false;
+  if (s.method === 'endpoint') return !!endpointBase(s) && !!s.endpointKey;
+  return !!s.token && /^[^/]+\/[^/]+$/.test(s.repo) && !!s.branch;
 };
 
 /** JSON-tekst → standaard base64 (GitHub Contents API), blokgewijs. */
@@ -293,10 +338,21 @@ function textToB64(text) {
   return btoa(bin);
 }
 
-/** Schrijf configs/TOKEN.json naar de repository. Geeft de korte link terug. */
+/** Zet de config op de server. Geeft { link, ref } terug: de korte link en
+ *  de verwijzing naar het publiceer-adres (leeg bij de GitHub-route). */
 async function publishConfig(token, cfg) {
   const s = loadPublishSettings();
-  if (!publishReady()) throw new Error('Vul eerst de sleutel, repository en branch in bij "Korte deel-links".');
+  if (!publishReady()) {
+    throw new Error(s.method === 'endpoint'
+      ? 'Vul eerst het publiceer-adres en het wachtwoord in bij "Korte deel-links".'
+      : 'Vul eerst de sleutel, repository en branch in bij "Korte deel-links".');
+  }
+  if (s.method === 'endpoint') return publishToEndpoint(token, cfg, s);
+  return publishToGithub(token, cfg, s);
+}
+
+/** Route 1: config als configs/TOKEN.json naar de repository schrijven. */
+async function publishToGithub(token, cfg, s) {
   const path = `configs/${token}.json`;
   const api = `https://api.github.com/repos/${s.repo}/contents/${path}`;
   const headers = {
@@ -308,7 +364,7 @@ async function publishConfig(token, cfg) {
   let sha;
   const head = await fetch(`${api}?ref=${encodeURIComponent(s.branch)}`, { headers, cache: 'no-store' });
   if (head.ok) sha = (await head.json()).sha;
-  else if (head.status === 401 || head.status === 403) throw new Error('De sleutel wordt geweigerd (401/403). Controleer of het token nog geldig is en Contents: read & write heeft op deze repository.');
+  else if (head.status === 401 || head.status === 403) throw new Error(TOKEN_GEWEIGERD);
   else if (head.status !== 404) throw new Error('Server antwoordde met ' + head.status + ' bij het opzoeken van ' + path);
 
   const res = await fetch(api, {
@@ -324,12 +380,43 @@ async function publishConfig(token, cfg) {
   if (!res.ok) {
     let detail = '';
     try { detail = (await res.json()).message || ''; } catch (e) { /* geen json */ }
+    if (res.status === 401 || res.status === 403) throw new Error(TOKEN_GEWEIGERD + (detail ? ' (' + detail + ')' : ''));
     throw new Error(`Publiceren mislukt (${res.status}${detail ? ': ' + detail : ''})`);
   }
-  return shortLink(token);
+  return { link: shortLink(token), ref: '' };
 }
 
-const shortLink = (token) => VIEWER + '?e=' + token;
+const TOKEN_GEWEIGERD =
+  'De GitHub-sleutel wordt geweigerd (401/403). Een fine-grained token in een organisatie ' +
+  'werkt pas als een eigenaar het heeft goedgekeurd (organisatie → Settings → Personal access tokens). ' +
+  'Snelste alternatief: een classic token met het vinkje public_repo. Zie docs/publiceren.md.';
+
+/** Route 2: config naar een eigen publiceer-adres (geen GitHub-account nodig). */
+async function publishToEndpoint(token, cfg, s) {
+  const base = endpointBase(s);
+  let res;
+  try {
+    res = await fetch(base, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: s.endpointKey, token, config: cfg }),
+    });
+  } catch (e) {
+    throw new Error('Het publiceer-adres is niet bereikbaar (' + (e.message || e) + '). Controleer het adres in "Korte deel-links".');
+  }
+  if (res.status === 401 || res.status === 403) throw new Error('Het wachtwoord voor het publiceer-adres klopt niet.');
+  if (!res.ok) {
+    let detail = '';
+    try { detail = (await res.json()).error || ''; } catch (e) { /* geen json */ }
+    throw new Error(`Publiceren mislukt (${res.status}${detail ? ': ' + detail : ''})`);
+  }
+  const ref = endpointRef(s);
+  return { link: shortLink(token, ref), ref };
+}
+
+/** Korte link; met een publiceer-adres gaat dat adres als &s=… mee. */
+const shortLink = (token, ref = '') =>
+  VIEWER + '?e=' + token + (ref ? '&s=' + encodeURIComponent(ref) : '');
 
 /** Handmatige route zonder sleutel: bestand downloaden + uploadpagina openen. */
 function manualPublish(token, cfg) {
@@ -503,23 +590,35 @@ $('gh-eigen-kleuren').addEventListener('change', syncGhKleuren);
 
 /* publiceer-instellingen: velden vullen, wijzigingen bewaren */
 function syncPublishFields() {
+  const endpoint = $('pub-methode').value === 'endpoint';
   $('pub-velden').style.display = $('pub-aan').checked ? 'block' : 'none';
+  $('pub-github').style.display = endpoint ? 'none' : 'block';
+  $('pub-endpoint-velden').style.display = endpoint ? 'block' : 'none';
 }
 (function initPublish() {
   const s = loadPublishSettings();
   $('pub-aan').checked = s.on;
+  $('pub-methode').value = s.method;
   $('pub-token').value = s.token;
   $('pub-repo').value = s.repo;
   $('pub-branch').value = s.branch;
+  $('pub-endpoint').value = s.endpoint;
+  $('pub-wachtwoord').value = s.endpointKey;
   syncPublishFields();
 })();
-for (const id of ['pub-aan', 'pub-token', 'pub-repo', 'pub-branch']) {
+for (const id of ['pub-aan', 'pub-methode', 'pub-token', 'pub-repo', 'pub-branch', 'pub-endpoint', 'pub-wachtwoord']) {
   $(id).addEventListener('change', () => { savePublishSettings(); syncPublishFields(); renderEvents(); });
 }
 $('pub-vergeet').addEventListener('click', () => {
   $('pub-token').value = '';
   savePublishSettings();
   toast('Sleutel gewist uit deze browser');
+  renderEvents();
+});
+$('pub-vergeet-endpoint').addEventListener('click', () => {
+  $('pub-wachtwoord').value = '';
+  savePublishSettings();
+  toast('Wachtwoord gewist uit deze browser');
   renderEvents();
 });
 
@@ -538,7 +637,7 @@ async function renderEvents() {
   for (const ev of list) {
     const div = document.createElement('div');
     div.className = 'event';
-    const short = shortLink(ev.token);
+    const short = shortLink(ev.token, ev.ref || '');
     const longLink = await hashLink(ev.config);
     const primaryLink = ev.published ? short : longLink;
     div.innerHTML = `<b></b><span class="tok"></span><div class="row"></div>`;
@@ -558,12 +657,14 @@ async function renderEvents() {
       mk(ev.published ? 'Opnieuw publiceren' : 'Publiceer korte link', async () => {
         try {
           toast('Publiceren…');
-          await publishConfig(ev.token, ev.config);
+          const { link, ref } = await publishConfig(ev.token, ev.config);
           const list2 = loadEvents();
           const hit = list2.find((x) => x.token === ev.token);
-          if (hit) { hit.published = true; saveEvents(list2); }
-          try { await navigator.clipboard.writeText(short); } catch (e) { /* zonder klembord */ }
-          toast('Gepubliceerd — korte link staat op je klembord (even wachten tot de server bijwerkt)');
+          if (hit) { hit.published = true; hit.ref = ref; saveEvents(list2); }
+          try { await navigator.clipboard.writeText(link); } catch (e) { /* zonder klembord */ }
+          toast(ref
+            ? 'Gepubliceerd — korte link staat op je klembord'
+            : 'Gepubliceerd — korte link staat op je klembord (even wachten tot de server bijwerkt)');
           renderEvents();
         } catch (e) { showError(e.message || String(e)); }
       });
@@ -650,14 +751,13 @@ $('save').addEventListener('click', async () => {
     // Met publiceren aan: config naar de server en de KORTE link kopiëren.
     if (publishReady()) {
       toast('Opgeslagen — publiceren…');
-      await publishConfig(token, cfg);
+      const { link, ref } = await publishConfig(token, cfg);
       const list2 = loadEvents();
       const hit = list2.find((x) => x.token === token);
-      if (hit) { hit.published = true; saveEvents(list2); }
+      if (hit) { hit.published = true; hit.ref = ref; saveEvents(list2); }
       renderEvents();
-      const short = shortLink(token);
-      try { await navigator.clipboard.writeText(short); toast('Korte link op je klembord: ' + short); }
-      catch { toast('Gepubliceerd — korte link: ' + short); }
+      try { await navigator.clipboard.writeText(link); toast('Korte link op je klembord: ' + link); }
+      catch { toast('Gepubliceerd — korte link: ' + link); }
       return;
     }
 
