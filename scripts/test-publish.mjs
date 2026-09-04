@@ -55,7 +55,7 @@ try {
     $('pub-aan').dispatchEvent(new Event('change', { bubbles: true }));
     $('pub-token').value = 'github_pat_testsleutel';
     $('pub-token').dispatchEvent(new Event('change', { bubbles: true }));
-    $('pub-repo').value = 'digitaldedication/nbc3dmodel';
+    $('pub-repo').value = 'Marketing-NBC/nbc3dmodel';
     $('pub-repo').dispatchEvent(new Event('change', { bubbles: true }));
     $('pub-branch').value = 'claude/nice-bohr-ynfyso';
     $('pub-branch').dispatchEvent(new Event('change', { bubbles: true }));

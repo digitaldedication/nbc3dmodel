@@ -11,11 +11,12 @@
     "test:viewer": "node scripts/test-viewer.mjs",
     "test:publish": "node scripts/test-publish.mjs",
     "test:publish-endpoint": "node scripts/test-publish-endpoint.mjs",
+    "test:voorbeelden": "node scripts/test-voorbeelden.mjs",
     "inspect": "node scripts/inspect-scene.mjs"
   },
   "repository": {
     "type": "git",
-    "url": "http://local_proxy@127.0.0.1:41729/git/digitaldedication/nbc3dmodel"
+    "url": "https://github.com/Marketing-NBC/nbc3dmodel"
   },
   "keywords": [],
   "author": "",

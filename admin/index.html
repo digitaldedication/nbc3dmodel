@@ -216,6 +216,12 @@
     <p class="hint">De preview rechts ververst automatisch na elke wijziging.</p>
 
     <fieldset style="margin-top:14px">
+      <legend>Voorbeelden</legend>
+      <div id="voorbeelden"><p class="hint">Voorbeelden laden…</p></div>
+      <p class="hint">Gepubliceerde voorbeeld-events uit <code>configs/voorbeelden.json</code>. Ze staan op de server en zijn dus in elke browser zichtbaar, ook zonder opgeslagen events. <b>Bewerken</b> laadt de gepubliceerde versie in het formulier en zet het event bij "Opgeslagen events" (zelfde token: opslaan + publiceren overschrijft het voorbeeld). Nieuw voorbeeld toevoegen: token + naam in <code>configs/voorbeelden.json</code> zetten.</p>
+    </fieldset>
+
+    <fieldset style="margin-top:14px">
       <legend>Opgeslagen events</legend>
       <div id="events"><p class="hint">Nog geen events opgeslagen.</p></div>
       <p class="hint">De <b>korte link</b> (<code>?e=TOKEN</code>) is het prettigst om te delen en blijft bij bewerken hetzelfde — daarvoor moet het event gepubliceerd zijn (bij publiceren via GitHub heeft de server daarna ongeveer een minuut nodig; via een eigen publiceer-adres werkt de link meteen). De <b>lange link</b> bevat het hele event en werkt zonder server, maar wordt met uploads duizenden tekens lang en kan bij kopiëren/plakken afgekapt raken. Events blijven in deze browser bewaard om ze later te bewerken.</p>
@@ -227,7 +233,7 @@
 
 <script type="module">
 const $ = (id) => document.getElementById(id);
-const ADMIN_VERSION = 'v21';
+const ADMIN_VERSION = 'v22';
 
 // Informatiepunten die standaard UIT staan bij een nieuw event
 // (splineName-sleutels uit src/tooltip-content.js).
@@ -731,6 +737,71 @@ function loadIntoForm(ev) {
   schedulePreview();
 }
 
+/* ---------- voorbeelden: gepubliceerde events uit de repository ---------- *
+ * "Opgeslagen events" leeft in de localStorage van deze ene browser en is
+ * dus weg in een andere browser of na een verhuizing van de site (zoals van
+ * digitaldedication.github.io naar marketing-nbc.github.io). Voorbeelden die
+ * altijd zichtbaar moeten zijn staan daarom als configs/TOKEN.json in de
+ * repository, met een lijstje in configs/voorbeelden.json:
+ *   { "events": [ { "token": "…", "name": "Coca-Cola" }, … ] } */
+const VOORBEELDEN_URL = projectBase() + 'configs/voorbeelden.json';
+
+async function loadVoorbeelden() {
+  const res = await fetch(VOORBEELDEN_URL + '?' + ADMIN_VERSION, { cache: 'no-store' });
+  if (!res.ok) throw new Error('configs/voorbeelden.json niet gevonden (' + res.status + ')');
+  const data = await res.json();
+  const list = Array.isArray(data) ? data : (data && data.events) || [];
+  return list.filter((v) => v && typeof v.token === 'string' && /^[A-Za-z0-9_-]{4,64}$/.test(v.token));
+}
+
+/** Gepubliceerde config ophalen, als (gepubliceerd) event in deze browser
+ *  zetten en in het formulier laden — zelfde token als het voorbeeld. */
+async function editVoorbeeld(v) {
+  const res = await fetch(projectBase() + 'configs/' + v.token + '.json', { cache: 'no-store' });
+  if (!res.ok) throw new Error(`Config "configs/${v.token}.json" niet gevonden (${res.status})`);
+  const config = await res.json();
+  const list = loadEvents();
+  const ev = { token: v.token, name: config.eventName || v.name || '', config, published: true, ref: '', updatedAt: Date.now() };
+  const idx = list.findIndex((x) => x.token === v.token);
+  if (idx >= 0) list[idx] = { ...list[idx], ...ev }; else list.unshift(ev);
+  saveEvents(list);
+  await renderEvents();
+  loadIntoForm(ev);
+}
+
+async function renderVoorbeelden() {
+  const host = $('voorbeelden');
+  let list;
+  try { list = await loadVoorbeelden(); }
+  catch (e) {
+    host.innerHTML = '<p class="hint"></p>';
+    host.firstChild.textContent = 'Voorbeelden konden niet worden geladen: ' + (e.message || e);
+    return;
+  }
+  host.innerHTML = list.length ? '' : '<p class="hint">Nog geen voorbeelden in configs/voorbeelden.json.</p>';
+  for (const v of list) {
+    const div = document.createElement('div');
+    div.className = 'event';
+    const short = shortLink(v.token);
+    div.innerHTML = `<b></b><span class="tok"></span><div class="row"></div>`;
+    div.querySelector('b').textContent = v.name || v.token;
+    div.querySelector('.tok').textContent = 'korte link actief · ' + v.token;
+    const row = div.querySelector('.row');
+    const open = document.createElement('a');
+    open.className = 'btn'; open.textContent = 'Open'; open.href = short; open.target = '_blank';
+    row.appendChild(open);
+    const mk = (label, fn) => {
+      const b = document.createElement('button');
+      b.textContent = label;
+      b.addEventListener('click', () => Promise.resolve().then(fn).catch((e) => showError(e.message || String(e))));
+      row.appendChild(b);
+    };
+    mk('Kopieer korte link', async () => { await navigator.clipboard.writeText(short); toast('Korte link gekopieerd: ' + short); });
+    mk('Bewerken', () => editVoorbeeld(v));
+    host.appendChild(div);
+  }
+}
+
 $('save').addEventListener('click', async () => {
   try {
     const cfg = await buildConfig();
@@ -861,6 +932,7 @@ $('ver').textContent = ADMIN_VERSION;
 })();
 syncClearButtons();
 renderEvents();
+renderVoorbeelden();
 refreshPreview().catch((e) => showError('Voorbeeld laden mislukt: ' + e.message));
 </script>
 </body>

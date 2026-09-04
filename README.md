@@ -34,6 +34,7 @@ schermcontent, deelbaar via een unieke, niet-herleidbare URL.
 | `src/branding.js` | Branding-module: texture-injectie + kleuren, werkt op `@splinetool/runtime` |
 | `viewer/` | Klantpagina: laadt branding-config via `?e=TOKEN` of `#c=<config>` en toont het gebrande model |
 | `admin/` | Demo-beheeromgeving: kleuren kiezen, logo/beelden uploaden, deelbare link genereren |
+| `configs/` | Gepubliceerde events (`TOKEN.json`) + `voorbeelden.json`: de voorbeelden die de beheeromgeving altijd toont |
 | `worker/` | Optioneel publiceer-adres (Cloudflare Worker) voor korte links zonder GitHub-token |
 | `scripts/` | Lokale server + Playwright-testen (inspectie, branding-PoC, viewer e2e) |
 | `docs/architectuur-analyse.md` | Technische analyse van de bestaande tool |
@@ -41,7 +42,9 @@ schermcontent, deelbaar via een unieke, niet-herleidbare URL.
 ## Hosting (GitHub Pages)
 
 De app is volledig statisch en draait onder elk (sub)pad, bijv.
-`https://digitaldedication.github.io/nbc3dmodel/`:
+`https://marketing-nbc.github.io/nbc3dmodel/`
+(de repository is verhuisd van `digitaldedication` naar de organisatie
+`Marketing-NBC`; het oude adres werkt niet meer):
 
 - `…/admin/` — beheeromgeving met live preview
 - `…/viewer/` — klantpagina (kaal model zonder parameters)
@@ -49,6 +52,15 @@ De app is volledig statisch en draait onder elk (sub)pad, bijv.
 - `…/viewer/?e=TOKEN` — vaste link; vereist `configs/TOKEN.json` in de repo
   (download het bestand in de beheeromgeving en commit het naar `configs/`)
   of een eigen publiceer-adres (`worker/`)
+
+**Voorbeelden.** "Opgeslagen events" in de beheeromgeving leeft in de
+localStorage van één browser en is dus weg in een andere browser of na een
+verhuizing van het adres. Voorbeelden die altijd zichtbaar moeten zijn
+(nu: Coca-Cola en Experts Live) staan daarom als `configs/TOKEN.json` in de
+repository, met token + naam in `configs/voorbeelden.json`. De beheeromgeving
+toont ze in de sectie *Voorbeelden* (openen, korte link kopiëren, bewerken).
+Nieuw voorbeeld: publiceer het event en voeg een regel toe aan
+`configs/voorbeelden.json`.
 
 De beheeromgeving kan die config zelf wegschrijven, op twee manieren:
 met een GitHub-sleutel naar `configs/`, of naar een eigen publiceer-adres
